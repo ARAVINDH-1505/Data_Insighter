@@ -1,68 +1,19 @@
 Flask==2.2.5
 gunicorn==21.2.0
+werkzeug==2.2.3
+python-dotenv==1.0.0
+
 pandas==2.0.3
 numpy==1.23.5
-plotly==5.17.0
 scipy==1.11.1
 scikit-learn==1.3.0
-seaborn==0.12.2
-werkzeug==2.2.3
-statsmodels==0.14.0
-ydata-profiling==4.5.1
-great-expectations==0.17.15
 chardet==5.2.0
 
-# Visualization
-dash==2.13.0
-kaleido==0.2.1  # Required for static image export
-matplotlib==3.7.2
-bokeh==3.3.0  # For interactive visualizations
-altair==4.2.2  # Downgraded to resolve dependency conflicts
-plotnine==0.12.1  # For ggplot2-style plots
+plotly==5.17.0
+kaleido==0.2.1
 
-# Statistical Analysis
-pingouin==0.5.3  # For statistical tests
-scikit-posthocs==0.7.0  # For post-hoc tests
-lifelines==0.27.7  # For survival analysis
-pymc==5.7.2  # For Bayesian analysis
-
-# File Handling & Export
-openpyxl==3.1.2  # For Excel file support
-XlsxWriter==3.1.2  # For Excel export
-reportlab==4.0.4  # For PDF generation
-PyPDF2==3.0.1
-
-# Data Validation & Processing
-python-dateutil==2.8.2
-pytz==2023.3.post1
-
-# Security
-python-dotenv==1.0.0
-PyJWT==2.8.0
-bcrypt==4.0.1
-
-# Development & Testing
 pytest==7.4.2
+pytest-cov==4.1.0
 black==23.9.1
 flake8==6.1.0
-pytest-cov==4.1.0
-
-# Web Framework and Extensions
-Flask-Login==0.6.2
-Flask-Session==0.5.0
-
-# Utilities
-tqdm==4.66.1  # For progress bars
-joblib==1.3.2  # For parallel processing
-numba==0.57.1  # For performance optimization
-
-# Development Tools
 isort==5.12.0
-
-# Performance and Caching
-redis==5.0.1
-celery==5.3.4
-
-# API Documentation
-flask-swagger-ui==4.11.1
-apispec==6.3.0
