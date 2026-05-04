@@ -36,7 +36,9 @@ from measure_service import evaluate_measure
 # Load environment variables from .env file
 load_dotenv()
 
-LOCAL_SECRET_KEY_FILE = os.path.join(os.path.dirname(__file__), '.local_secret_key')
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+LOCAL_SECRET_KEY_FILE = os.path.join(APP_ROOT, '.local_secret_key')
+SAVING_DASHBOARD_TEMPLATE = os.path.join(APP_ROOT, 'templates', 'saving_dashboard.html')
 
 
 def load_app_secret_key():
@@ -66,20 +68,20 @@ app = Flask(__name__)
 # FIX #1: Secret key from environment variable, otherwise a stable local fallback file
 app.secret_key = load_app_secret_key()
 
-app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['UPLOAD_FOLDER'] = os.path.join(APP_ROOT, 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  
-app.config['SAMPLE_DATASETS'] = 'sample_datasets'
+app.config['SAMPLE_DATASETS'] = os.path.join(APP_ROOT, 'sample_datasets')
 
 # Ensure required folders exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['SAMPLE_DATASETS'], exist_ok=True)
-os.makedirs(os.path.join('static', 'css'), exist_ok=True)
-os.makedirs(os.path.join('static', 'js'), exist_ok=True)
-os.makedirs(os.path.join('static', 'images'), exist_ok=True)
+os.makedirs(os.path.join(app.static_folder, 'css'), exist_ok=True)
+os.makedirs(os.path.join(app.static_folder, 'js'), exist_ok=True)
+os.makedirs(os.path.join(app.static_folder, 'images'), exist_ok=True)
 ensure_workspace_dirs()
 
 # ---------- User store helpers (FIX #2 + #3) ----------
-USERS_FILE = os.path.join(os.path.dirname(__file__), 'users.json')
+USERS_FILE = os.path.join(APP_ROOT, 'users.json')
 
 
 def _normalize_email(email):
@@ -889,7 +891,7 @@ def export_dashboard():
             return error_response('Missing dashboard data', 400)
         
         # Read the template
-        with open('templates/saving_dashboard.html', 'r', encoding='utf-8') as f:
+        with open(SAVING_DASHBOARD_TEMPLATE, 'r', encoding='utf-8') as f:
             template_content = f.read()
         
         # Replace the placeholder with actual dashboard data
