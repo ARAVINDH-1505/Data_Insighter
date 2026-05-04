@@ -54,6 +54,10 @@ ensure_workspace_dirs()
 # ---------- User store helpers (FIX #2 + #3) ----------
 USERS_FILE = os.path.join(os.path.dirname(__file__), 'users.json')
 
+
+def _normalize_email(email):
+    return (email or '').strip().lower()
+
 def _load_users():
     """Load users from JSON file."""
     if os.path.exists(USERS_FILE):
@@ -68,6 +72,16 @@ def _save_users(users):
     """Save users to JSON file."""
     with open(USERS_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f, indent=2)
+
+
+def _email_exists(users, email, exclude_username=None):
+    normalized = _normalize_email(email)
+    for username, details in users.items():
+        if exclude_username and username == exclude_username:
+            continue
+        if _normalize_email(details.get('email')) == normalized:
+            return True
+    return False
 
 # Start with an empty user store; accounts should be created through registration.
 if not os.path.exists(USERS_FILE):
@@ -1047,9 +1061,12 @@ def register():
         if username in users:
             flash('Username already exists', 'error')
             return redirect(url_for('register'))
+        if _email_exists(users, email):
+            flash('Email is already registered', 'error')
+            return redirect(url_for('register'))
         
         users[username] = {
-            'email': email,
+            'email': _normalize_email(email),
             'password_hash': generate_password_hash(password)
         }
         _save_users(users)
@@ -1068,6 +1085,7 @@ def login():
         
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
+        normalized_login = _normalize_email(username)
         
         # FIX #2: Authenticate against stored users with hashed passwords
         users = _load_users()
@@ -1078,7 +1096,7 @@ def login():
                 (
                     (stored_username, details)
                     for stored_username, details in users.items()
-                    if details.get('email', '').lower() == username.lower()
+                    if _normalize_email(details.get('email')) == normalized_login
                 ),
                 None
             )
