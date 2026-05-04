@@ -1,3 +1,4 @@
+from html import escape
 from typing import Any, Dict, List
 
 
@@ -48,11 +49,21 @@ def build_report_payload(summary: Dict[str, Any], dataset: Dict[str, Any] | None
         markdown_lines.extend([f"- {bullet}" for bullet in section['bullets']])
         markdown_lines.append("")
 
+    safe_dataset_name = escape(dataset_name)
+    html_sections = ''.join(
+        (
+            f"<div class='section'><h2>{escape(section['title'])}</h2><ul>"
+            + ''.join(f"<li>{escape(str(bullet))}</li>" for bullet in section['bullets'])
+            + "</ul></div>"
+        )
+        for section in sections
+    )
+
     html = f"""
     <html>
     <head>
         <meta charset="utf-8">
-        <title>Executive Summary - {dataset_name}</title>
+        <title>Executive Summary - {safe_dataset_name}</title>
         <style>
             body {{ font-family: Arial, sans-serif; margin: 40px; color: #1f2937; }}
             h1, h2 {{ color: #111827; }}
@@ -62,11 +73,8 @@ def build_report_payload(summary: Dict[str, Any], dataset: Dict[str, Any] | None
     </head>
     <body>
         <h1>Executive Summary</h1>
-        <p><strong>Dataset:</strong> {dataset_name}</p>
-        {''.join(
-            f"<div class='section'><h2>{section['title']}</h2><ul>{''.join(f'<li>{bullet}</li>' for bullet in section['bullets'])}</ul></div>"
-            for section in sections
-        )}
+        <p><strong>Dataset:</strong> {safe_dataset_name}</p>
+        {html_sections}
     </body>
     </html>
     """
@@ -77,4 +85,3 @@ def build_report_payload(summary: Dict[str, Any], dataset: Dict[str, Any] | None
         'markdown': '\n'.join(markdown_lines).strip(),
         'html': html.strip(),
     }
-

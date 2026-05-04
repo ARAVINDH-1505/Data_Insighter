@@ -128,6 +128,16 @@ def safe_filename_stem(value, default='export'):
     return normalized[:80]
 
 
+def escape_embedded_json(payload):
+    """Escape JSON so it is safe to embed inside HTML script tags."""
+    return (
+        json.dumps(payload, cls=NumpyEncoder)
+        .replace('&', '\\u0026')
+        .replace('<', '\\u003c')
+        .replace('>', '\\u003e')
+    )
+
+
 def is_tracked_dataset_path(username, filepath):
     """Return True when the path belongs to a saved dataset for this user."""
     if not filepath:
@@ -828,7 +838,7 @@ def export_dashboard():
             template_content = f.read()
         
         # Replace the placeholder with actual dashboard data
-        dashboard_json = json.dumps(dashboard_data)
+        dashboard_json = escape_embedded_json(dashboard_data)
         html_content = template_content.replace('DASHBOARD_DATA_PLACEHOLDER', dashboard_json)
         
         # Create a temporary file

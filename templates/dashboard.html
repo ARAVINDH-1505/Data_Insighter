@@ -1423,7 +1423,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             height: textBoxRect.height,
                             widthPercent: (relativeWidth / dashboardRect.width) * 100 // Store width as percentage
                         },
-                        content: content.innerHTML,
+                        content: content.textContent || '',
                         style: {
                             fontFamily: computedStyle.fontFamily,
                             fontSize: computedStyle.fontSize,

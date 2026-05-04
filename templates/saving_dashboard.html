@@ -110,9 +110,13 @@
         </div>
     </div>
 
+    <script id="dashboard-data" type="application/json">DASHBOARD_DATA_PLACEHOLDER</script>
+
     <script>
         // Load the dashboard data
-        const dashboardData = DASHBOARD_DATA_PLACEHOLDER;
+        const dashboardData = JSON.parse(
+            document.getElementById('dashboard-data').textContent
+        );
 
         // Set dashboard dimensions and styles
         function setDashboardDimensions() {
@@ -202,7 +206,7 @@
             
             const content = document.createElement('div');
             content.className = 'text-box-content';
-            content.innerHTML = textBoxData.content;
+            content.textContent = textBoxData.content || '';
             
             // Apply all saved styles
             if (textBoxData.style) {
