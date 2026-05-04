@@ -120,6 +120,14 @@ def cleanup_uploaded_file(filepath):
             pass
 
 
+def safe_filename_stem(value, default='export'):
+    """Create a safe filename stem for generated artifacts."""
+    normalized = secure_filename((value or '').strip())
+    if not normalized:
+        return default
+    return normalized[:80]
+
+
 def is_tracked_dataset_path(username, filepath):
     """Return True when the path belongs to a saved dataset for this user."""
     if not filepath:
@@ -457,17 +465,21 @@ def export_report():
         report = build_report_payload(processor.get_analysis_summary(), dataset_record)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        dataset_name = report['dataset_name'].replace(' ', '_')
+        dataset_name = safe_filename_stem(report['dataset_name'], default='dataset_report')
 
         if export_type == 'markdown':
             output_file = f'{dataset_name}_report_{timestamp}.md'
             output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
+            if not is_path_within_directory(app.config['UPLOAD_FOLDER'], output_path):
+                return error_response('Unsafe export path generated.', 400)
             with open(output_path, 'w', encoding='utf-8') as handle:
                 handle.write(report['markdown'])
             return send_file(output_path, as_attachment=True, download_name=output_file, mimetype='text/markdown')
 
         output_file = f'{dataset_name}_report_{timestamp}.html'
         output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
+        if not is_path_within_directory(app.config['UPLOAD_FOLDER'], output_path):
+            return error_response('Unsafe export path generated.', 400)
         with open(output_path, 'w', encoding='utf-8') as handle:
             handle.write(report['html'])
         return send_file(output_path, as_attachment=True, download_name=output_file, mimetype='text/html')
