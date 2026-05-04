@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for, session
+from io import BytesIO
 import os
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -850,12 +851,26 @@ def export_visualization():
             return error_response('Missing required parameters', 400)
         
         viz_generator = VisualizationGenerator(None)
-        export_file = viz_generator.export_visualization(viz_type, viz_data)
-        
+        export_file = viz_generator.export_visualization(
+            viz_type,
+            viz_data,
+            app.config['UPLOAD_FOLDER'],
+        )
+        if not is_path_within_directory(app.config['UPLOAD_FOLDER'], export_file):
+            return error_response('Unsafe export path generated.', 400)
+
+        with open(export_file, 'rb') as handle:
+            export_bytes = handle.read()
+        try:
+            os.remove(export_file)
+        except OSError:
+            pass
+
         return send_file(
-            export_file,
+            BytesIO(export_bytes),
             as_attachment=True,
-            download_name=f'visualization.{viz_type}'
+            download_name=f'visualization.{viz_type}',
+            mimetype='image/png',
         )
     except Exception as e:
         return error_response(str(e), 400)

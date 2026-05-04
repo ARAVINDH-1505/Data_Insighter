@@ -185,12 +185,16 @@ class VisualizationGenerator:
         
         return dashboard_data
     
-    def export_visualization(self, viz_type: str, viz_data: Dict[str, Any]) -> str:
+    def export_visualization(self, viz_type: str, viz_data: Dict[str, Any], output_dir: str) -> str:
         """Export visualization to file."""
         if viz_type == 'png':
             # Convert plotly JSON to figure and save as PNG
             fig = go.Figure(viz_data)
-            output_file = f'export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(
+                output_dir,
+                f'export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png',
+            )
             fig.write_image(output_file)
             return output_file
         
