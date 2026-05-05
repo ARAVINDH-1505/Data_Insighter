@@ -152,6 +152,17 @@
             <div class="panel">
                 <div class="panel-header">
                     <div>
+                        <p class="eyebrow">Governance</p>
+                        <h2>Trust and downstream impact</h2>
+                    </div>
+                </div>
+                <div id="governanceSummary" class="stack-list loading-text">Assessing sensitivity, lineage depth, and reproducibility...</div>
+                <div id="activityLog" class="stack-list loading-text">Loading recent dataset activity...</div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
                         <p class="eyebrow">Semantic Layer</p>
                         <h2>What each field means</h2>
                     </div>
@@ -946,6 +957,51 @@ function renderExecutiveTakeaways(items) {
     `).join('');
 }
 
+function prettyActionName(action) {
+    return (action || 'activity')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function renderGovernanceSummary(governance) {
+    const summaryContainer = document.getElementById('governanceSummary');
+    const activityContainer = document.getElementById('activityLog');
+    const sensitivity = governance.sensitivity || { label: 'Unknown', reasons: [] };
+    const pipeline = governance.pipeline || {};
+    const downstream = governance.downstream_assets || {};
+
+    summaryContainer.innerHTML = `
+        <div class="profile-card">
+            <div class="card-title">Sensitivity label</div>
+            <div class="semantic-pill">${sensitivity.label}</div>
+            <div class="card-detail" style="margin-top:10px;">${(sensitivity.reasons || []).join(' ')}</div>
+        </div>
+        <div class="profile-card">
+            <div class="card-title">Reproducibility</div>
+            <div class="card-detail">${pipeline.step_count || 0} recorded pipeline steps / ${pipeline.can_rebuild ? 'rebuild supported' : 'rebuild limited'}</div>
+            <div class="card-detail" style="margin-top:8px;">Lineage depth ${governance.lineage_depth || 0} / quality risk ${governance.quality_risk || 'Unknown'}</div>
+        </div>
+        <div class="profile-card">
+            <div class="card-title">Downstream assets</div>
+            <div class="card-detail">${downstream.dashboards || 0} dashboard(s) / ${downstream.measures || 0} reusable measure(s)</div>
+            <div class="card-detail" style="margin-top:8px;">Changes to this dataset may affect those saved artifacts.</div>
+        </div>
+    `;
+
+    const activity = governance.activity || [];
+    if (!activity.length) {
+        activityContainer.innerHTML = '<div class="profile-card"><div class="card-detail">No recent dataset activity has been recorded yet.</div></div>';
+        return;
+    }
+    activityContainer.innerHTML = activity.map((event) => `
+        <div class="profile-card">
+            <div class="card-title">${prettyActionName(event.action)}</div>
+            <div class="card-detail">${event.details?.name || event.details?.display_name || event.details?.description || 'Workspace event recorded.'}</div>
+            <span class="card-stat">${event.created_at}</span>
+        </div>
+    `).join('');
+}
+
 function renderLineage(dataset) {
     const container = document.getElementById('lineageSteps');
     const steps = currentPipelineState?.steps?.length
@@ -1287,6 +1343,15 @@ async function loadExecutiveReport() {
     renderReportPreview(data.report);
 }
 
+async function loadGovernanceSummary() {
+    const response = await fetch('/governance_summary');
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to load governance summary');
+    }
+    renderGovernanceSummary(data.governance);
+}
+
 async function exportReport(type) {
     const response = await fetch('/export_report', {
         method: 'POST',
@@ -1544,6 +1609,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('refreshInsights').addEventListener('click', async () => {
         try {
             await loadAnalysisSummary();
+            await loadGovernanceSummary();
             showSuccess('Insights refreshed from the current dataset.');
         } catch (error) {
             showError(error.message);
@@ -1610,6 +1676,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
         await loadAnalysisSummary();
+        await loadGovernanceSummary();
         await loadExecutiveReport();
         await loadDataModel();
         await loadMeasures();
@@ -1623,6 +1690,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('executiveTakeaways').textContent = 'Executive takeaways could not be generated.';
         document.getElementById('reportPreview').textContent = 'Report preview could not be generated.';
         document.getElementById('lineageSteps').textContent = 'Lineage history could not be loaded.';
+        document.getElementById('governanceSummary').textContent = 'Governance summary could not be loaded.';
+        document.getElementById('activityLog').textContent = 'Recent dataset activity could not be loaded.';
         document.getElementById('measureResults').textContent = 'Saved measures could not be loaded.';
     }
 });

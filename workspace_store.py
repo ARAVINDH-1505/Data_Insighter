@@ -12,6 +12,7 @@ DATASETS_DIR = os.path.join(BASE_DIR, 'datasets')
 DASHBOARDS_DIR = os.path.join(BASE_DIR, 'dashboards')
 RELATIONSHIPS_DIR = os.path.join(BASE_DIR, 'relationships')
 MEASURES_DIR = os.path.join(BASE_DIR, 'measures')
+AUDIT_DIR = os.path.join(BASE_DIR, 'audit')
 
 
 def ensure_workspace_dirs() -> None:
@@ -19,6 +20,7 @@ def ensure_workspace_dirs() -> None:
     os.makedirs(DASHBOARDS_DIR, exist_ok=True)
     os.makedirs(RELATIONSHIPS_DIR, exist_ok=True)
     os.makedirs(MEASURES_DIR, exist_ok=True)
+    os.makedirs(AUDIT_DIR, exist_ok=True)
 
 
 def _safe_user_segment(username: str) -> str:
@@ -98,6 +100,23 @@ def _measure_path(username: str, measure_id: str) -> str:
 
 def _list_user_measure_files(username: str) -> List[str]:
     user_dir = os.path.join(MEASURES_DIR, _safe_user_segment(username))
+    if not os.path.exists(user_dir):
+        return []
+    return [
+        os.path.join(user_dir, filename)
+        for filename in os.listdir(user_dir)
+        if filename.endswith('.json')
+    ]
+
+
+def _audit_path(username: str, event_id: str) -> str:
+    user_dir = os.path.join(AUDIT_DIR, _safe_user_segment(username))
+    os.makedirs(user_dir, exist_ok=True)
+    return os.path.join(user_dir, f'{event_id}.json')
+
+
+def _list_user_audit_files(username: str) -> List[str]:
+    user_dir = os.path.join(AUDIT_DIR, _safe_user_segment(username))
     if not os.path.exists(user_dir):
         return []
     return [
@@ -330,3 +349,48 @@ def list_measure_records(username: str, dataset_id: Optional[str] = None) -> Lis
 
     records.sort(key=lambda item: item.get('updated_at', ''), reverse=True)
     return records
+
+
+def log_audit_event(
+    username: str,
+    action: str,
+    dataset_id: Optional[str] = None,
+    artifact_type: str = 'dataset',
+    artifact_id: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    ensure_workspace_dirs()
+    event_id = f"evt_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
+    event = {
+        'id': event_id,
+        'action': action,
+        'dataset_id': dataset_id,
+        'artifact_type': artifact_type,
+        'artifact_id': artifact_id,
+        'details': details or {},
+        'created_at': datetime.utcnow().isoformat() + 'Z',
+    }
+    _write_json_atomic(_audit_path(username, event_id), event)
+    return event
+
+
+def list_audit_events(
+    username: str,
+    dataset_id: Optional[str] = None,
+    artifact_id: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    ensure_workspace_dirs()
+    events = []
+    for path in _list_user_audit_files(username):
+        event = _read_json(path)
+        if not event:
+            continue
+        if dataset_id and event.get('dataset_id') != dataset_id:
+            continue
+        if artifact_id and event.get('artifact_id') != artifact_id:
+            continue
+        events.append(event)
+
+    events.sort(key=lambda item: item.get('created_at', ''), reverse=True)
+    return events[:limit]

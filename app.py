@@ -15,6 +15,7 @@ import secrets
 import tempfile
 from dataset_pipeline_service import build_dataset_from_record, dataset_pipeline_steps, supports_pipeline_rebuild
 from file_utils import SUPPORTED_EXTENSIONS, read_data_file
+from governance_service import build_governance_summary
 from dotenv import load_dotenv
 from workspace_store import (
     create_dashboard_record,
@@ -24,11 +25,13 @@ from workspace_store import (
     ensure_workspace_dirs,
     get_dashboard_record,
     get_dataset_record,
+    list_audit_events,
     list_all_dataset_records,
     list_dashboard_records,
     list_dataset_records,
     list_measure_records,
     list_relationship_records,
+    log_audit_event,
 )
 from transform_service import apply_transform
 from report_service import build_report_payload
@@ -250,6 +253,20 @@ def dataset_metadata(display_name, columns, extra=None):
         metadata.update(extra)
     return metadata
 
+
+def record_audit_event(action, artifact_type='dataset', dataset_id=None, artifact_id=None, details=None):
+    username = session.get('user')
+    if not username:
+        return None
+    return log_audit_event(
+        username,
+        action=action,
+        dataset_id=dataset_id or session.get('current_dataset_id'),
+        artifact_type=artifact_type,
+        artifact_id=artifact_id,
+        details=details or {},
+    )
+
 def login_required(view):
     """Require an authenticated session for app pages and APIs."""
     @wraps(view)
@@ -372,6 +389,12 @@ def upload():
                         },
                     ),
                 )
+                record_audit_event(
+                    'dataset_uploaded',
+                    dataset_id=dataset_record['id'],
+                    artifact_id=dataset_record['id'],
+                    details={'display_name': file.filename, 'source_type': 'upload'},
+                )
                 session['current_dataset_id'] = dataset_record['id']
                 
                 # Prepare preview data
@@ -465,6 +488,12 @@ def use_sample(filename):
                     },
                 ),
             )
+            record_audit_event(
+                'sample_dataset_loaded',
+                dataset_id=dataset_record['id'],
+                artifact_id=dataset_record['id'],
+                details={'display_name': filename, 'source_type': 'sample'},
+            )
             session['current_dataset_id'] = dataset_record['id']
             
             data_info = {
@@ -537,6 +566,33 @@ def executive_report():
             dataset_record = get_dataset_record(session['user'], session['current_dataset_id'])
         report = build_report_payload(processor.get_analysis_summary(), dataset_record)
         return jsonify({'success': True, 'report': report})
+    except Exception as e:
+        return error_response(str(e), 400)
+
+
+@app.route('/governance_summary')
+@login_required
+def governance_summary():
+    filepath = session.get('current_filepath')
+    dataset_id = session.get('current_dataset_id')
+    if not filepath or not os.path.exists(filepath) or not dataset_id:
+        return error_response('No active dataset found. Load a dataset first.', 400)
+
+    dataset_record = get_dataset_record(session['user'], dataset_id)
+    if not dataset_record:
+        return error_response('Active dataset metadata could not be found.', 404)
+
+    try:
+        processor = DataProcessor(filepath)
+        summary = processor.get_analysis_summary()
+        dashboards = list_dashboard_records(session['user'], dataset_id=dataset_id)
+        measures = list_measure_records(session['user'], dataset_id=dataset_id)
+        activity = list_audit_events(session['user'], dataset_id=dataset_id, limit=12)
+        governance = build_governance_summary(dataset_record, summary, activity, dashboards, measures)
+        return jsonify({
+            'success': True,
+            'governance': governance,
+        })
     except Exception as e:
         return error_response(str(e), 400)
 
@@ -639,6 +695,12 @@ def apply_dataset_transform():
                     'pipeline_steps': parent_pipeline + [lineage_step],
                 },
             ),
+        )
+        record_audit_event(
+            'transform_applied',
+            dataset_id=dataset_record['id'],
+            artifact_id=dataset_record['id'],
+            details={'operation': operation, 'description': description},
         )
 
         session['current_dataset_id'] = dataset_record['id']
@@ -756,6 +818,12 @@ def rebuild_dataset(dataset_id):
                 },
             ),
         )
+        record_audit_event(
+            'pipeline_rebuilt',
+            dataset_id=rebuilt_record['id'],
+            artifact_id=rebuilt_record['id'],
+            details={'rebuilt_from_dataset_id': record['id']},
+        )
         session['current_dataset_id'] = rebuilt_record['id']
         session['current_filepath'] = rebuilt_path
 
@@ -809,6 +877,18 @@ def save_relationship():
         right_column=payload['right_column'],
         join_type=payload.get('join_type') or 'left',
         confidence=payload.get('confidence'),
+    )
+    record_audit_event(
+        'relationship_saved',
+        artifact_type='relationship',
+        dataset_id=payload['left_dataset_id'],
+        artifact_id=record['id'],
+        details={
+            'left_dataset_id': payload['left_dataset_id'],
+            'right_dataset_id': payload['right_dataset_id'],
+            'left_column': payload['left_column'],
+            'right_column': payload['right_column'],
+        },
     )
     return jsonify({'success': True, 'relationship': record})
 
@@ -887,6 +967,16 @@ def create_joined_dataset():
             join_type=payload.get('join_type') or 'left',
             confidence=payload.get('confidence'),
         )
+        record_audit_event(
+            'joined_dataset_created',
+            dataset_id=dataset_record['id'],
+            artifact_id=dataset_record['id'],
+            details={
+                'left_dataset_id': left_record['id'],
+                'right_dataset_id': right_record['id'],
+                'join_type': payload.get('join_type') or 'left',
+            },
+        )
 
         session['current_dataset_id'] = dataset_record['id']
         session['current_filepath'] = derived_path
@@ -935,6 +1025,13 @@ def create_measure():
             definition=definition,
             latest_result=result,
         )
+        record_audit_event(
+            'measure_created',
+            artifact_type='measure',
+            dataset_id=session.get('current_dataset_id'),
+            artifact_id=record['id'],
+            details={'name': name, 'type': definition.get('type')},
+        )
         return jsonify({'success': True, 'measure': record, 'result': result})
     except Exception as e:
         return error_response(str(e), 400)
@@ -953,6 +1050,12 @@ def activate_dataset(dataset_id):
 
     session['current_dataset_id'] = dataset_record['id']
     session['current_filepath'] = dataset_record['stored_path']
+    record_audit_event(
+        'dataset_activated',
+        dataset_id=dataset_record['id'],
+        artifact_id=dataset_record['id'],
+        details={'display_name': dataset_record.get('metadata', {}).get('display_name', dataset_record['source_name'])},
+    )
     flash(f"Loaded dataset: {dataset_record.get('metadata', {}).get('display_name', dataset_record['source_name'])}", 'success')
     return redirect(url_for('analysis'))
 
@@ -1169,6 +1272,13 @@ def save_dashboard_record():
         dataset_id=session.get('current_dataset_id'),
         dashboard_viz=dashboard_viz,
         dashboard_state=dashboard_state,
+    )
+    record_audit_event(
+        'dashboard_saved',
+        artifact_type='dashboard',
+        dataset_id=session.get('current_dataset_id'),
+        artifact_id=record['id'],
+        details={'name': name, 'chart_count': len(dashboard_viz)},
     )
     return jsonify({'success': True, 'dashboard': record})
 
