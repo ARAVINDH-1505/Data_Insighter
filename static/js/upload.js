@@ -49,8 +49,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const files = e.target.files;
         if (files.length > 0) {
             const file = files[0];
-            if (!file.name.match(/\.(csv|json)$/i)) {
-                showError('Please upload a CSV or JSON file');
+            if (!file.name.match(/\.(csv|tsv|json|jsonl|ndjson|xlsx|xls|parquet)$/i)) {
+                showError('Please upload a CSV, TSV, JSON, Excel, or Parquet file');
                 return;
             }
             if (file.size > 16 * 1024 * 1024) {

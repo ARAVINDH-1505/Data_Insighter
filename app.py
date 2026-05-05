@@ -13,7 +13,7 @@ from datetime import datetime
 import time
 import secrets
 import tempfile
-from file_utils import read_data_file
+from file_utils import SUPPORTED_EXTENSIONS, read_data_file
 from dotenv import load_dotenv
 from workspace_store import (
     create_dashboard_record,
@@ -164,7 +164,7 @@ def inject_template_globals():
     return {'current_year': datetime.now().year}
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'csv', 'json'}
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in SUPPORTED_EXTENSIONS
 
 def error_response(message, status_code):
     return jsonify({'success': False, 'error': message}), status_code
