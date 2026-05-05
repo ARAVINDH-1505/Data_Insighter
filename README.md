@@ -1,16 +1,19 @@
 # Data Insighter
 
-Data Insighter is a Flask-based data analysis workspace for uploading CSV/JSON datasets, profiling them, generating Plotly visualizations, creating saved dashboards, and exporting insight summaries.
+Data Insighter is a Flask-based data analysis workspace for uploading business datasets, profiling them, generating Plotly visualizations, creating saved dashboards, replaying dataset pipelines, and exporting insight summaries.
 
 ## What the app currently does
 
 - User registration and login with hashed passwords and CSRF protection
-- Upload CSV and JSON files
+- Upload CSV, TSV, JSON, JSONL, Excel, and Parquet files
 - Load bundled sample datasets
 - Generate dataset summaries, semantic profiles, quality alerts, and executive takeaways
 - Apply lightweight transforms such as deduplication, text trimming, missing-value filling, date-part extraction, and calculated columns
+- Rebuild derived datasets from recorded transform and join pipelines, or roll back to parent versions
 - Suggest relationships across uploaded datasets and create joined datasets
 - Define reusable business measures
+- Refresh saved dataset versions, detect schema drift, and review workspace freshness states
+- Review sensitivity hints, activity history, and downstream dashboard/measure impact for the active dataset
 - Build dashboard layouts from analysis charts and export dashboards as interactive HTML or PNG
 - Export executive reports as HTML or Markdown
 
@@ -23,12 +26,15 @@ Backend modules:
 - `insight_engine.py` - anomaly, contribution, funnel, cohort, seasonality, and variance insights
 - `semantic_model.py` - semantic role inference for columns
 - `data_model_service.py` - key profiling, relationship suggestions, and joins
+- `dataset_pipeline_service.py` - replayable dataset rebuild helpers
+- `dataset_refresh_service.py` - dataset refresh and schema-drift detection
+- `governance_service.py` - sensitivity and trust summary helpers
 - `measure_service.py` - reusable measure calculations
 - `transform_service.py` - dataset transformation operations
 - `visualization_generator.py` - Plotly chart generation and export
-- `workspace_store.py` - JSON-backed persistence for datasets, dashboards, relationships, and measures
+- `workspace_store.py` - JSON-backed persistence for datasets, dashboards, relationships, measures, and audit events
 - `report_service.py` - executive summary report generation
-- `file_utils.py` - CSV/JSON loading with encoding handling
+- `file_utils.py` - multi-format ingestion with encoding handling
 
 Frontend surface:
 
@@ -47,7 +53,13 @@ Frontend surface:
 ## Supported file types
 
 - `.csv`
+- `.tsv`
 - `.json`
+- `.jsonl`
+- `.ndjson`
+- `.xlsx`
+- `.xls`
+- `.parquet`
 
 ## Local development
 
@@ -82,6 +94,10 @@ python -m pytest -q
 
 The current suite covers:
 
+- connector/file ingestion behavior
+- dataset pipeline replay, undo, and rebuild
+- dataset refresh and schema drift detection
+- governance summary behavior
 - measure calculations
 - relationship/key profiling
 - advanced insight helpers
