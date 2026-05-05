@@ -173,6 +173,62 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    function renderWorkspaceCatalog(datasets) {
+        const container = document.getElementById('workspaceCatalog');
+        if (!container) {
+            return;
+        }
+        if (!datasets.length) {
+            container.innerHTML = `
+                <div class="sample-dataset-card">
+                    <h3>No saved datasets yet</h3>
+                    <p>Upload or activate a sample dataset to start building a reusable workspace catalog.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = datasets.map((dataset) => `
+            <div class="sample-dataset-card">
+                <h3>${dataset.display_name}</h3>
+                <span class="catalog-stat">${dataset.freshness?.status || 'current'}</span>
+                <p>${dataset.row_count} rows / ${dataset.column_count} columns / ${dataset.pipeline_step_count} pipeline steps</p>
+                <p>${dataset.freshness?.reason || 'No freshness issues detected.'}</p>
+                <button class="btn btn-primary open-workspace-dataset" data-id="${dataset.id}">
+                    Open Dataset
+                </button>
+            </div>
+        `).join('');
+
+        document.querySelectorAll('.open-workspace-dataset').forEach((button) => {
+            button.addEventListener('click', () => {
+                window.location.href = `/datasets/${button.dataset.id}/activate`;
+            });
+        });
+    }
+
+    async function loadWorkspaceCatalog() {
+        const container = document.getElementById('workspaceCatalog');
+        if (!container) {
+            return;
+        }
+        try {
+            const response = await fetch('/workspace_catalog');
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || 'Could not load the workspace catalog');
+            }
+            renderWorkspaceCatalog(data.datasets || []);
+        } catch (error) {
+            container.innerHTML = `
+                <div class="sample-dataset-card">
+                    <h3>Workspace catalog unavailable</h3>
+                    <p>${error.message}</p>
+                </div>
+            `;
+        }
+    }
+
     function updateProceedButton() {
         const selectedColumns = document.querySelectorAll('.column-item input[type="checkbox"]:checked');
         proceedButton.disabled = selectedColumns.length === 0;
@@ -231,4 +287,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         updateProceedButton();
     });
+
+    loadWorkspaceCatalog();
 }); 

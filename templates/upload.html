@@ -43,6 +43,21 @@
         </div>
     </div>
 
+    <div class="workspace-catalog-section">
+        <div class="section-header">
+            <div>
+                <h2>Workspace Catalog</h2>
+                <p>Review saved datasets, freshness signals, and version depth before you jump back into analysis.</p>
+            </div>
+        </div>
+        <div id="workspaceCatalog" class="sample-datasets-grid">
+            <div class="sample-dataset-card">
+                <h3>Loading workspace assets...</h3>
+                <p>Checking dataset freshness, refresh history, and pipeline depth.</p>
+            </div>
+        </div>
+    </div>
+
     <!-- Sample Datasets Section -->
     <div class="sample-datasets-section">
         <h2>Try Sample Datasets</h2>
@@ -164,6 +179,26 @@
 /* Sample Datasets Section Styles */
 .sample-datasets-section {
     margin-top: 40px;
+}
+
+.workspace-catalog-section {
+    margin-top: 42px;
+}
+
+.section-header p {
+    color: #667085;
+    margin-top: 6px;
+}
+
+.catalog-stat {
+    display: inline-flex;
+    margin: 6px 0;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.86rem;
+    font-weight: 600;
 }
 
 .sample-datasets-section h2 {
