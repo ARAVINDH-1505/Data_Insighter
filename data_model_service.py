@@ -134,18 +134,15 @@ def suggest_relationships(dataset_records: List[Dict[str, Any]]) -> Dict[str, An
     return {'datasets': datasets, 'suggestions': suggestions[:12]}
 
 
-def join_datasets(
-    left_record: Dict[str, Any],
-    right_record: Dict[str, Any],
+def join_dataframes(
+    left_df: pd.DataFrame,
+    right_df: pd.DataFrame,
     left_key: str,
     right_key: str,
     join_type: str = 'left',
 ) -> pd.DataFrame:
     if join_type not in {'left', 'inner', 'outer'}:
         raise ValueError('Join type must be left, inner, or outer.')
-
-    left_df = read_data_file(left_record['stored_path'])
-    right_df = read_data_file(right_record['stored_path'])
 
     if left_key not in left_df.columns:
         raise ValueError(f"Left key '{left_key}' was not found.")
@@ -169,3 +166,15 @@ def join_datasets(
     )
     joined = joined.drop(columns=[left_join_key, right_join_key], errors='ignore')
     return joined.reset_index(drop=True)
+
+
+def join_datasets(
+    left_record: Dict[str, Any],
+    right_record: Dict[str, Any],
+    left_key: str,
+    right_key: str,
+    join_type: str = 'left',
+) -> pd.DataFrame:
+    left_df = read_data_file(left_record['stored_path'])
+    right_df = read_data_file(right_record['stored_path'])
+    return join_dataframes(left_df, right_df, left_key, right_key, join_type)

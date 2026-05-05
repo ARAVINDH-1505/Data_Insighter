@@ -13,6 +13,7 @@ from datetime import datetime
 import time
 import secrets
 import tempfile
+from dataset_pipeline_service import build_dataset_from_record, dataset_pipeline_steps, supports_pipeline_rebuild
 from file_utils import SUPPORTED_EXTENSIONS, read_data_file
 from dotenv import load_dotenv
 from workspace_store import (
@@ -237,6 +238,18 @@ def store_derived_dataset(df, base_name):
     df.to_csv(filepath, index=False)
     return filepath, filename
 
+
+def dataset_metadata(display_name, columns, extra=None):
+    metadata = {
+        'display_name': display_name,
+        'columns': columns,
+        'lineage_steps': [],
+        'pipeline_steps': [],
+    }
+    if extra:
+        metadata.update(extra)
+    return metadata
+
 def login_required(view):
     """Require an authenticated session for app pages and APIs."""
     @wraps(view)
@@ -351,10 +364,13 @@ def upload():
                     source_type='upload',
                     row_count=len(df),
                     column_count=len(df.columns),
-                    metadata={
-                        'display_name': file.filename,
-                        'columns': df.columns.tolist(),
-                    },
+                    metadata=dataset_metadata(
+                        file.filename,
+                        df.columns.tolist(),
+                        {
+                            'source_extension': extension,
+                        },
+                    ),
                 )
                 session['current_dataset_id'] = dataset_record['id']
                 
@@ -441,10 +457,13 @@ def use_sample(filename):
                 source_type='sample',
                 row_count=len(df),
                 column_count=len(df.columns),
-                metadata={
-                    'display_name': filename,
-                    'columns': df.columns.tolist(),
-                },
+                metadata=dataset_metadata(
+                    filename,
+                    df.columns.tolist(),
+                    {
+                        'source_extension': filename.rsplit('.', 1)[1].lower(),
+                    },
+                ),
             )
             session['current_dataset_id'] = dataset_record['id']
             
@@ -591,10 +610,14 @@ def apply_dataset_transform():
             current_record = get_dataset_record(session['user'], session['current_dataset_id'])
 
         source_name = current_record['source_name'] if current_record else os.path.basename(filepath)
-        parent_lineage = current_record.get('metadata', {}).get('lineage_steps', []) if current_record else []
+        current_metadata = current_record.get('metadata', {}) if current_record else {}
+        parent_lineage = current_metadata.get('lineage_steps', [])
+        parent_pipeline = current_metadata.get('pipeline_steps', [])
         lineage_step = {
+            'kind': 'transform',
             'operation': operation,
             'description': description,
+            'options': options,
             'created_at': datetime.utcnow().isoformat() + 'Z',
         }
         derived_path, derived_filename = store_derived_dataset(transformed_df, source_name)
@@ -606,13 +629,16 @@ def apply_dataset_transform():
             row_count=len(transformed_df),
             column_count=len(transformed_df.columns),
             parent_dataset_id=current_record['id'] if current_record else None,
-            metadata={
-                'display_name': f"{current_record.get('metadata', {}).get('display_name', source_name) if current_record else source_name} / transformed",
-                'columns': transformed_df.columns.tolist(),
-                'transform_operation': operation,
-                'transform_description': description,
-                'lineage_steps': parent_lineage + [lineage_step],
-            },
+            metadata=dataset_metadata(
+                f"{current_metadata.get('display_name', source_name) if current_record else source_name} / transformed",
+                transformed_df.columns.tolist(),
+                {
+                    'transform_operation': operation,
+                    'transform_description': description,
+                    'lineage_steps': parent_lineage + [lineage_step],
+                    'pipeline_steps': parent_pipeline + [lineage_step],
+                },
+            ),
         )
 
         session['current_dataset_id'] = dataset_record['id']
@@ -623,6 +649,121 @@ def apply_dataset_transform():
             'success': True,
             'message': description,
             'dataset': dataset_record,
+            'summary': processor.get_analysis_summary(),
+        })
+    except Exception as e:
+        return error_response(str(e), 400)
+
+
+@app.route('/datasets/<dataset_id>/pipeline')
+@login_required
+def dataset_pipeline(dataset_id):
+    record = get_dataset_record(session['user'], dataset_id)
+    if not record:
+        return error_response('Dataset not found in your workspace.', 404)
+
+    parent_record = None
+    if record.get('parent_dataset_id'):
+        parent_record = get_dataset_record(session['user'], record['parent_dataset_id'])
+
+    return jsonify({
+        'success': True,
+        'dataset': {
+            'id': record['id'],
+            'source_type': record.get('source_type'),
+            'display_name': record.get('metadata', {}).get('display_name', record['source_name']),
+        },
+        'pipeline': {
+            'steps': dataset_pipeline_steps(record),
+            'can_undo': bool(parent_record),
+            'can_rebuild': supports_pipeline_rebuild(record),
+            'parent_dataset': parent_record,
+        },
+    })
+
+
+@app.route('/datasets/<dataset_id>/undo', methods=['POST'])
+@login_required
+def undo_dataset_version(dataset_id):
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    record = get_dataset_record(session['user'], dataset_id)
+    if not record:
+        return error_response('Dataset not found in your workspace.', 404)
+    parent_id = record.get('parent_dataset_id')
+    if not parent_id:
+        return error_response('This dataset has no parent version to restore.', 400)
+
+    parent_record = get_dataset_record(session['user'], parent_id)
+    if not parent_record:
+        return error_response('The parent dataset version is no longer available.', 404)
+    if not os.path.exists(parent_record['stored_path']):
+        return error_response('The parent dataset file is no longer available.', 404)
+
+    session['current_dataset_id'] = parent_record['id']
+    session['current_filepath'] = parent_record['stored_path']
+    return jsonify({
+        'success': True,
+        'message': f"Restored parent dataset: {parent_record.get('metadata', {}).get('display_name', parent_record['source_name'])}",
+        'dataset': parent_record,
+    })
+
+
+@app.route('/datasets/<dataset_id>/rebuild', methods=['POST'])
+@login_required
+def rebuild_dataset(dataset_id):
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    record = get_dataset_record(session['user'], dataset_id)
+    if not record:
+        return error_response('Dataset not found in your workspace.', 404)
+    if not supports_pipeline_rebuild(record):
+        return error_response('This dataset does not yet have a structured rebuild definition.', 400)
+
+    try:
+        rebuilt_df = build_dataset_from_record(session['user'], record)
+        if rebuilt_df.empty:
+            return error_response('The rebuilt pipeline produced an empty dataset.', 400)
+
+        source_name = record.get('source_name') or record.get('metadata', {}).get('display_name') or 'dataset'
+        rebuilt_path, rebuilt_filename = store_derived_dataset(rebuilt_df, source_name)
+        record_metadata = record.get('metadata', {})
+        rebuild_step = {
+            'kind': 'system',
+            'operation': 'rebuild_pipeline',
+            'description': f"Rebuilt the dataset from its recorded pipeline definition on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC.",
+            'created_at': datetime.utcnow().isoformat() + 'Z',
+        }
+        rebuilt_record = create_dataset_record(
+            session['user'],
+            source_name=rebuilt_filename,
+            stored_path=rebuilt_path,
+            source_type='rebuilt',
+            row_count=len(rebuilt_df),
+            column_count=len(rebuilt_df.columns),
+            parent_dataset_id=record['id'],
+            metadata=dataset_metadata(
+                f"{record_metadata.get('display_name', source_name)} / rebuilt",
+                rebuilt_df.columns.tolist(),
+                {
+                    'pipeline_steps': record_metadata.get('pipeline_steps', []),
+                    'lineage_steps': record_metadata.get('lineage_steps', []) + [rebuild_step],
+                    'rebuilt_from_dataset_id': record['id'],
+                    'rebuilt_from_source_type': record.get('source_type'),
+                    'join': record_metadata.get('join'),
+                },
+            ),
+        )
+        session['current_dataset_id'] = rebuilt_record['id']
+        session['current_filepath'] = rebuilt_path
+
+        processor = DataProcessor(rebuilt_path)
+        return jsonify({
+            'success': True,
+            'message': 'Pipeline rebuilt into a new dataset version.',
+            'dataset': rebuilt_record,
             'summary': processor.get_analysis_summary(),
         })
     except Exception as e:
@@ -696,6 +837,21 @@ def create_joined_dataset():
 
         left_name = left_record.get('metadata', {}).get('display_name') or left_record['source_name']
         right_name = right_record.get('metadata', {}).get('display_name') or right_record['source_name']
+        left_metadata = left_record.get('metadata', {})
+        join_step = {
+            'kind': 'join',
+            'operation': 'join',
+            'description': f"Joined {left_name} to {right_name} on {payload.get('left_column')} = {payload.get('right_column')}.",
+            'left_dataset_id': left_record['id'],
+            'left_dataset_name': left_name,
+            'left_column': payload.get('left_column'),
+            'right_dataset_id': right_record['id'],
+            'right_dataset_name': right_name,
+            'right_column': payload.get('right_column'),
+            'join_type': payload.get('join_type') or 'left',
+            'confidence': payload.get('confidence'),
+            'created_at': datetime.utcnow().isoformat() + 'Z',
+        }
         derived_path, derived_filename = store_derived_dataset(joined_df, f'{left_name}_joined_{right_name}')
         dataset_record = create_dataset_record(
             session['user'],
@@ -705,25 +861,21 @@ def create_joined_dataset():
             row_count=len(joined_df),
             column_count=len(joined_df.columns),
             parent_dataset_id=left_record['id'],
-            metadata={
-                'display_name': f'{left_name} joined with {right_name}',
-                'columns': joined_df.columns.tolist(),
-                'join': {
-                    'left_dataset_id': left_record['id'],
-                    'left_column': payload.get('left_column'),
-                    'right_dataset_id': right_record['id'],
-                    'right_column': payload.get('right_column'),
-                    'join_type': payload.get('join_type') or 'left',
+            metadata=dataset_metadata(
+                f'{left_name} joined with {right_name}',
+                joined_df.columns.tolist(),
+                {
+                    'join': {
+                        'left_dataset_id': left_record['id'],
+                        'left_column': payload.get('left_column'),
+                        'right_dataset_id': right_record['id'],
+                        'right_column': payload.get('right_column'),
+                        'join_type': payload.get('join_type') or 'left',
+                    },
+                    'lineage_steps': left_metadata.get('lineage_steps', []) + [join_step],
+                    'pipeline_steps': left_metadata.get('pipeline_steps', []) + [join_step],
                 },
-                'lineage_steps': (
-                    left_record.get('metadata', {}).get('lineage_steps', [])
-                    + [{
-                        'operation': 'join',
-                        'description': f"Joined {left_name} to {right_name} on {payload.get('left_column')} = {payload.get('right_column')}.",
-                        'created_at': datetime.utcnow().isoformat() + 'Z',
-                    }]
-                ),
-            },
+            ),
         )
 
         create_relationship_record(

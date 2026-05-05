@@ -140,7 +140,12 @@
                         <p class="eyebrow">Lineage</p>
                         <h2>Transform history</h2>
                     </div>
+                    <div class="recommendation-actions">
+                        <button id="undoLastStep" class="btn btn-outline">Undo to Parent</button>
+                        <button id="rebuildPipeline" class="btn btn-outline">Rebuild Pipeline</button>
+                    </div>
                 </div>
+                <div id="pipelineStatus" class="panel-note">Checking whether this dataset can be replayed or rolled back...</div>
                 <div id="lineageSteps" class="stack-list loading-text">Loading dataset history...</div>
             </div>
 
@@ -837,6 +842,8 @@
 let currentPlot = null;
 let currentChartMeta = null;
 let currentReport = null;
+let currentDatasetId = '{{ dataset_record.id if dataset_record else "" }}';
+let currentPipelineState = null;
 
 function selectedColumns() {
     return [...document.querySelectorAll('input[name="column"]:checked')].map((checkbox) => checkbox.value);
@@ -941,7 +948,9 @@ function renderExecutiveTakeaways(items) {
 
 function renderLineage(dataset) {
     const container = document.getElementById('lineageSteps');
-    const steps = dataset?.metadata?.lineage_steps || [];
+    const steps = currentPipelineState?.steps?.length
+        ? currentPipelineState.steps
+        : (dataset?.metadata?.pipeline_steps || dataset?.metadata?.lineage_steps || []);
     if (!steps.length) {
         container.innerHTML = '<div class="profile-card"><div class="card-detail">This dataset is the current source version. Transform and join steps will appear here as reusable history.</div></div>';
         return;
@@ -950,9 +959,82 @@ function renderLineage(dataset) {
         <div class="profile-card">
             <div class="card-title">Step ${index + 1}: ${step.operation}</div>
             <div class="card-detail">${step.description}</div>
-            <span class="card-stat">${step.created_at || 'recorded'}</span>
+            <span class="card-stat">${step.kind || 'step'} / ${step.created_at || 'recorded'}</span>
         </div>
     `).join('');
+}
+
+function updatePipelineControls(pipeline, dataset) {
+    currentPipelineState = pipeline;
+    const pipelineStatus = document.getElementById('pipelineStatus');
+    const undoButton = document.getElementById('undoLastStep');
+    const rebuildButton = document.getElementById('rebuildPipeline');
+
+    undoButton.disabled = !pipeline.can_undo;
+    rebuildButton.disabled = !pipeline.can_rebuild;
+
+    const parts = [];
+    parts.push(`${pipeline.steps.length} recorded step${pipeline.steps.length === 1 ? '' : 's'}`);
+    parts.push(`source type: ${dataset?.source_type || 'unknown'}`);
+    if (pipeline.can_undo) {
+        parts.push('undo available');
+    }
+    if (pipeline.can_rebuild) {
+        parts.push('rebuild supported');
+    }
+    pipelineStatus.textContent = parts.join(' / ');
+}
+
+async function loadPipelineState(datasetId, dataset = null) {
+    if (!datasetId) {
+        return;
+    }
+    const response = await fetch(`/datasets/${datasetId}/pipeline`);
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to load pipeline state');
+    }
+    updatePipelineControls(data.pipeline, data.dataset || dataset || {});
+}
+
+async function undoToParentDataset() {
+    if (!currentDatasetId) {
+        showError('No active dataset version is selected.');
+        return;
+    }
+    const response = await fetch(`/datasets/${currentDatasetId}/undo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            _csrf_token: window.getCsrfToken ? window.getCsrfToken() : '',
+        })
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Could not restore the parent dataset.');
+    }
+    showSuccess(data.message);
+    window.location.href = '/analysis';
+}
+
+async function rebuildCurrentPipeline() {
+    if (!currentDatasetId) {
+        showError('No active dataset version is selected.');
+        return;
+    }
+    const response = await fetch(`/datasets/${currentDatasetId}/rebuild`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            _csrf_token: window.getCsrfToken ? window.getCsrfToken() : '',
+        })
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Could not rebuild the current pipeline.');
+    }
+    showSuccess(data.message);
+    window.location.href = '/analysis';
 }
 
 function renderReportPreview(report) {
@@ -1015,6 +1097,12 @@ async function loadAnalysisSummary() {
     renderProfiles(data.summary.column_profiles);
     renderSemanticProfiles(data.summary.semantic_profiles || []);
     renderExecutiveTakeaways(data.summary.executive_takeaways || []);
+    currentDatasetId = data.dataset?.id || currentDatasetId;
+    try {
+        await loadPipelineState(currentDatasetId, data.dataset || {});
+    } catch (error) {
+        document.getElementById('pipelineStatus').textContent = error.message;
+    }
     renderLineage(data.dataset);
 }
 
@@ -1501,6 +1589,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('refreshMeasures').addEventListener('click', async () => {
         try {
             await loadMeasures();
+        } catch (error) {
+            showError(error.message);
+        }
+    });
+    document.getElementById('undoLastStep').addEventListener('click', async () => {
+        try {
+            await undoToParentDataset();
+        } catch (error) {
+            showError(error.message);
+        }
+    });
+    document.getElementById('rebuildPipeline').addEventListener('click', async () => {
+        try {
+            await rebuildCurrentPipeline();
         } catch (error) {
             showError(error.message);
         }
