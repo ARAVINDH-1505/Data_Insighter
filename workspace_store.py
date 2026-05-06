@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 BASE_DIR = os.path.join(os.path.dirname(__file__), 'workspace_data')
 DATASETS_DIR = os.path.join(BASE_DIR, 'datasets')
 DASHBOARDS_DIR = os.path.join(BASE_DIR, 'dashboards')
+REPORTS_DIR = os.path.join(BASE_DIR, 'reports')
 RELATIONSHIPS_DIR = os.path.join(BASE_DIR, 'relationships')
 MEASURES_DIR = os.path.join(BASE_DIR, 'measures')
 AUDIT_DIR = os.path.join(BASE_DIR, 'audit')
@@ -18,6 +19,7 @@ AUDIT_DIR = os.path.join(BASE_DIR, 'audit')
 def ensure_workspace_dirs() -> None:
     os.makedirs(DATASETS_DIR, exist_ok=True)
     os.makedirs(DASHBOARDS_DIR, exist_ok=True)
+    os.makedirs(REPORTS_DIR, exist_ok=True)
     os.makedirs(RELATIONSHIPS_DIR, exist_ok=True)
     os.makedirs(MEASURES_DIR, exist_ok=True)
     os.makedirs(AUDIT_DIR, exist_ok=True)
@@ -66,6 +68,23 @@ def _dashboard_path(username: str, dashboard_id: str) -> str:
 
 def _list_user_dashboard_files(username: str) -> List[str]:
     user_dir = os.path.join(DASHBOARDS_DIR, _safe_user_segment(username))
+    if not os.path.exists(user_dir):
+        return []
+    return [
+        os.path.join(user_dir, filename)
+        for filename in os.listdir(user_dir)
+        if filename.endswith('.json')
+    ]
+
+
+def _report_path(username: str, report_id: str) -> str:
+    user_dir = os.path.join(REPORTS_DIR, _safe_user_segment(username))
+    os.makedirs(user_dir, exist_ok=True)
+    return os.path.join(user_dir, f'{report_id}.json')
+
+
+def _list_user_report_files(username: str) -> List[str]:
+    user_dir = os.path.join(REPORTS_DIR, _safe_user_segment(username))
     if not os.path.exists(user_dir):
         return []
     return [
@@ -257,6 +276,47 @@ def create_dashboard_record(
 def get_dashboard_record(username: str, dashboard_id: str) -> Optional[Dict[str, Any]]:
     ensure_workspace_dirs()
     return _read_json(_dashboard_path(username, dashboard_id))
+
+
+def create_report_record(
+    username: str,
+    name: str,
+    dataset_id: Optional[str],
+    report_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    ensure_workspace_dirs()
+    report_id = f"rpt_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
+    now = datetime.utcnow().isoformat() + 'Z'
+    record = {
+        'id': report_id,
+        'name': name,
+        'dataset_id': dataset_id,
+        'created_at': now,
+        'updated_at': now,
+        'report': report_payload,
+    }
+    _write_json_atomic(_report_path(username, report_id), record)
+    return record
+
+
+def get_report_record(username: str, report_id: str) -> Optional[Dict[str, Any]]:
+    ensure_workspace_dirs()
+    return _read_json(_report_path(username, report_id))
+
+
+def list_report_records(username: str, dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    ensure_workspace_dirs()
+    records = []
+    for path in _list_user_report_files(username):
+        record = _read_json(path)
+        if not record:
+            continue
+        if dataset_id and record.get('dataset_id') != dataset_id:
+            continue
+        records.append(record)
+
+    records.sort(key=lambda item: item.get('updated_at', ''), reverse=True)
+    return records
 
 
 def list_dashboard_records(username: str, dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:

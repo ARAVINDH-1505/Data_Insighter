@@ -210,12 +210,26 @@
                         <h2>Top takeaways</h2>
                     </div>
                     <div class="recommendation-actions">
+                        <button id="saveReportSnapshot" class="btn btn-secondary">Save Snapshot</button>
                         <button id="exportHtmlReport" class="btn btn-outline">Export HTML</button>
                         <button id="exportMarkdownReport" class="btn btn-outline">Export Markdown</button>
                     </div>
                 </div>
                 <div id="executiveTakeaways" class="stack-list loading-text">Writing a concise summary from the dataset...</div>
                 <div id="reportPreview" class="report-preview loading-text">Report sections will appear here after generation.</div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">Narrative Library</p>
+                        <h2>Saved report snapshots</h2>
+                    </div>
+                    <div class="recommendation-actions">
+                        <button id="refreshReportLibrary" class="btn btn-outline">Refresh Library</button>
+                    </div>
+                </div>
+                <div id="reportLibrary" class="stack-list loading-text">Loading saved executive summaries...</div>
             </div>
 
             <div class="panel">
@@ -867,6 +881,15 @@ function themeToken(name, fallback = '') {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function themedAxisLayout(axis = {}) {
     const textColor = themeToken('--text-color', '#152132');
     const mutedColor = themeToken('--text-light', '#5d6979');
@@ -1028,9 +1051,14 @@ function renderSemanticProfiles(profiles) {
 }
 
 function renderExecutiveTakeaways(items) {
+    if (!items.length) {
+        document.getElementById('executiveTakeaways').innerHTML = '<div class="insight-card"><div class="card-detail">No executive takeaways are saved for this report yet.</div></div>';
+        return;
+    }
+
     document.getElementById('executiveTakeaways').innerHTML = items.map((item) => `
         <div class="insight-card">
-            <div class="card-detail">${item}</div>
+            <div class="card-detail">${escapeHtml(item)}</div>
         </div>
     `).join('');
 }
@@ -1061,7 +1089,7 @@ function renderGovernanceSummary(governance) {
         </div>
         <div class="profile-card">
             <div class="card-title">Downstream assets</div>
-            <div class="card-detail">${downstream.dashboards || 0} dashboard(s) / ${downstream.measures || 0} reusable measure(s)</div>
+            <div class="card-detail">${downstream.dashboards || 0} dashboard(s) / ${downstream.measures || 0} reusable measure(s) / ${downstream.reports || 0} saved report(s)</div>
             <div class="card-detail" style="margin-top:8px;">Changes to this dataset may affect those saved artifacts.</div>
         </div>
     `;
@@ -1195,12 +1223,80 @@ function renderReportPreview(report) {
     currentReport = report;
     document.getElementById('reportPreview').innerHTML = report.sections.map((section) => `
         <div class="report-section">
-            <h3>${section.title}</h3>
+            <h3>${escapeHtml(section.title)}</h3>
             <ul>
-                ${section.bullets.map((bullet) => `<li>${bullet}</li>`).join('')}
+                ${section.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join('')}
             </ul>
         </div>
     `).join('');
+}
+
+function renderReportLibrary(reports) {
+    const container = document.getElementById('reportLibrary');
+    if (!reports.length) {
+        container.innerHTML = '<div class="recommendation-card"><div class="card-detail">No saved report snapshots yet. Save an executive summary to create a reusable analyst narrative for this dataset.</div></div>';
+        return;
+    }
+
+    container.innerHTML = reports.map((report) => `
+        <div class="recommendation-card">
+            <div>
+                <div class="card-title">${escapeHtml(report.name)}</div>
+                <div class="card-detail">${escapeHtml(report.dataset_name || 'Dataset snapshot')} / ${report.section_count} sections</div>
+            </div>
+            <div class="recommendation-actions">
+                <button class="btn btn-outline open-report-snapshot" data-report-id="${escapeHtml(report.id)}">Open Snapshot</button>
+            </div>
+        </div>
+    `).join('');
+
+    document.querySelectorAll('.open-report-snapshot').forEach((button) => {
+        button.addEventListener('click', async () => {
+            await openReportSnapshot(button.dataset.reportId);
+        });
+    });
+}
+
+async function loadReportLibrary() {
+    const response = await fetch('/report_library');
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to load report snapshots');
+    }
+    renderReportLibrary(data.reports || []);
+}
+
+async function openReportSnapshot(reportId) {
+    const response = await fetch(`/reports/${encodeURIComponent(reportId)}`);
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to open the report snapshot');
+    }
+    const report = data.report?.report || {};
+    const takeawaysSection = (report.sections || []).find((section) => section.title === 'Executive takeaways');
+    renderExecutiveTakeaways(takeawaysSection?.bullets || []);
+    renderReportPreview(report);
+}
+
+async function saveCurrentReportSnapshot() {
+    if (!currentReport) {
+        await loadExecutiveReport();
+    }
+
+    const defaultName = `${currentReport?.dataset_name || 'Dataset'} executive summary`;
+    const response = await fetch('/reports/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            _csrf_token: window.getCsrfToken ? window.getCsrfToken() : '',
+            name: defaultName,
+        })
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to save the report snapshot');
+    }
+    await loadReportLibrary();
 }
 
 function recommendationButton(chart, label = 'Open Chart') {
@@ -1731,6 +1827,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             showError(error.message);
         }
     });
+    document.getElementById('saveReportSnapshot').addEventListener('click', async () => {
+        try {
+            await saveCurrentReportSnapshot();
+            showSuccess('Executive summary saved to the workspace library.');
+        } catch (error) {
+            showError(error.message);
+        }
+    });
+    document.getElementById('refreshReportLibrary').addEventListener('click', async () => {
+        try {
+            await loadReportLibrary();
+            showSuccess('Saved report library refreshed.');
+        } catch (error) {
+            showError(error.message);
+        }
+    });
     document.getElementById('exportHtmlReport').addEventListener('click', async () => {
         try {
             await exportReport('html');
@@ -1786,6 +1898,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadAnalysisSummary();
         await loadGovernanceSummary();
         await loadExecutiveReport();
+        await loadReportLibrary();
         await loadDataModel();
         await loadMeasures();
     } catch (error) {
@@ -1797,6 +1910,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('semanticProfiles').textContent = 'Semantic field inference could not be loaded.';
         document.getElementById('executiveTakeaways').textContent = 'Executive takeaways could not be generated.';
         document.getElementById('reportPreview').textContent = 'Report preview could not be generated.';
+        document.getElementById('reportLibrary').textContent = 'Saved report snapshots could not be loaded.';
         document.getElementById('lineageSteps').textContent = 'Lineage history could not be loaded.';
         document.getElementById('governanceSummary').textContent = 'Governance summary could not be loaded.';
         document.getElementById('activityLog').textContent = 'Recent dataset activity could not be loaded.';

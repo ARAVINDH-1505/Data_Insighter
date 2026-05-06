@@ -8,6 +8,7 @@ def _configure_workspace_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_store, 'BASE_DIR', str(base_dir))
     monkeypatch.setattr(workspace_store, 'DATASETS_DIR', str(base_dir / 'datasets'))
     monkeypatch.setattr(workspace_store, 'DASHBOARDS_DIR', str(base_dir / 'dashboards'))
+    monkeypatch.setattr(workspace_store, 'REPORTS_DIR', str(base_dir / 'reports'))
     monkeypatch.setattr(workspace_store, 'RELATIONSHIPS_DIR', str(base_dir / 'relationships'))
     monkeypatch.setattr(workspace_store, 'MEASURES_DIR', str(base_dir / 'measures'))
     monkeypatch.setattr(workspace_store, 'AUDIT_DIR', str(base_dir / 'audit'))
@@ -92,6 +93,7 @@ def test_build_governance_summary_counts_downstream_assets():
         audit_events=[{'action': 'dataset_uploaded'}],
         dashboards=[{'id': 'db_1'}, {'id': 'db_2'}],
         measures=[{'id': 'm_1'}],
+        reports=[{'id': 'r_1'}, {'id': 'r_2'}, {'id': 'r_3'}],
     )
 
-    assert summary['downstream_assets'] == {'dashboards': 2, 'measures': 1}
+    assert summary['downstream_assets'] == {'dashboards': 2, 'measures': 1, 'reports': 3}

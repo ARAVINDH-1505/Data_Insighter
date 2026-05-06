@@ -22,16 +22,19 @@ from workspace_store import (
     create_dashboard_record,
     create_dataset_record,
     create_measure_record,
+    create_report_record,
     create_relationship_record,
     ensure_workspace_dirs,
     get_dashboard_record,
     get_dataset_record,
+    get_report_record,
     update_dataset_record,
     list_audit_events,
     list_all_dataset_records,
     list_dashboard_records,
     list_dataset_records,
     list_measure_records,
+    list_report_records,
     list_relationship_records,
     log_audit_event,
 )
@@ -576,6 +579,78 @@ def executive_report():
         return error_response(str(e), 400)
 
 
+@app.route('/report_library')
+@login_required
+def report_library():
+    dataset_id = request.args.get('dataset_id') or session.get('current_dataset_id')
+    reports = list_report_records(session['user'], dataset_id=dataset_id)
+    return jsonify({
+        'success': True,
+        'reports': [
+            {
+                'id': report['id'],
+                'name': report['name'],
+                'dataset_id': report.get('dataset_id'),
+                'dataset_name': report.get('report', {}).get('dataset_name'),
+                'created_at': report['created_at'],
+                'updated_at': report['updated_at'],
+                'section_count': len(report.get('report', {}).get('sections', [])),
+            }
+            for report in reports
+        ],
+    })
+
+
+@app.route('/reports/<report_id>')
+@login_required
+def get_report(report_id):
+    record = get_report_record(session['user'], report_id)
+    if not record:
+        return error_response('Report snapshot not found.', 404)
+    return jsonify({'success': True, 'report': record})
+
+
+@app.route('/reports/save', methods=['POST'])
+@login_required
+def save_report_snapshot():
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    filepath = session.get('current_filepath')
+    dataset_id = session.get('current_dataset_id')
+    if not filepath or not os.path.exists(filepath) or not dataset_id:
+        return error_response('No active dataset found. Load a dataset first.', 400)
+
+    dataset_record = get_dataset_record(session['user'], dataset_id)
+    if not dataset_record:
+        return error_response('Active dataset metadata could not be found.', 404)
+
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        processor = DataProcessor(filepath)
+        report = build_report_payload(processor.get_analysis_summary(), dataset_record)
+        default_name = f"{report['dataset_name']} executive summary"
+        name = (payload.get('name') or default_name).strip() or default_name
+
+        record = create_report_record(
+            session['user'],
+            name=name,
+            dataset_id=dataset_id,
+            report_payload=report,
+        )
+        record_audit_event(
+            'report_saved',
+            artifact_type='report',
+            dataset_id=dataset_id,
+            artifact_id=record['id'],
+            details={'name': name, 'section_count': len(report.get('sections', []))},
+        )
+        return jsonify({'success': True, 'report': record})
+    except Exception as e:
+        return error_response(str(e), 400)
+
+
 @app.route('/governance_summary')
 @login_required
 def governance_summary():
@@ -593,8 +668,9 @@ def governance_summary():
         summary = processor.get_analysis_summary()
         dashboards = list_dashboard_records(session['user'], dataset_id=dataset_id)
         measures = list_measure_records(session['user'], dataset_id=dataset_id)
+        reports = list_report_records(session['user'], dataset_id=dataset_id)
         activity = list_audit_events(session['user'], dataset_id=dataset_id, limit=12)
-        governance = build_governance_summary(dataset_record, summary, activity, dashboards, measures)
+        governance = build_governance_summary(dataset_record, summary, activity, dashboards, measures, reports)
         return jsonify({
             'success': True,
             'governance': governance,

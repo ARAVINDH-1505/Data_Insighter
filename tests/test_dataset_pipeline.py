@@ -10,6 +10,7 @@ def _configure_workspace_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_store, 'BASE_DIR', str(base_dir))
     monkeypatch.setattr(workspace_store, 'DATASETS_DIR', str(base_dir / 'datasets'))
     monkeypatch.setattr(workspace_store, 'DASHBOARDS_DIR', str(base_dir / 'dashboards'))
+    monkeypatch.setattr(workspace_store, 'REPORTS_DIR', str(base_dir / 'reports'))
     monkeypatch.setattr(workspace_store, 'RELATIONSHIPS_DIR', str(base_dir / 'relationships'))
     monkeypatch.setattr(workspace_store, 'MEASURES_DIR', str(base_dir / 'measures'))
     workspace_store.ensure_workspace_dirs()

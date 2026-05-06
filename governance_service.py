@@ -56,6 +56,7 @@ def build_governance_summary(
     audit_events: List[Dict[str, Any]],
     dashboards: List[Dict[str, Any]],
     measures: List[Dict[str, Any]],
+    reports: List[Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     sensitivity = infer_sensitivity_label(analysis_summary)
     alerts = analysis_summary.get('quality_alerts', []) or []
@@ -82,6 +83,7 @@ def build_governance_summary(
         'downstream_assets': {
             'dashboards': len(dashboards),
             'measures': len(measures),
+            'reports': len(reports or []),
         },
         'activity': audit_events[:8],
     }

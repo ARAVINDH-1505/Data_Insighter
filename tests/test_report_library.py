@@ -1,5 +1,4 @@
 import os
-import time
 
 import app as app_module
 import workspace_store
@@ -17,7 +16,7 @@ def _configure_workspace_dirs(tmp_path, monkeypatch):
     workspace_store.ensure_workspace_dirs()
 
 
-def _set_session(client, dataset_id, filepath, token='test-token'):
+def _set_session(client, dataset_id, filepath, token='report-token'):
     with client.session_transaction() as session_state:
         session_state['_csrf_token'] = token
         session_state['user'] = 'analyst'
@@ -26,52 +25,53 @@ def _set_session(client, dataset_id, filepath, token='test-token'):
     return token
 
 
-def test_workspace_catalog_and_refresh_detect_schema_changes(tmp_path, monkeypatch):
+def test_report_snapshot_routes_round_trip(tmp_path, monkeypatch):
     _configure_workspace_dirs(tmp_path, monkeypatch)
     app_module.app.config['TESTING'] = True
     original_upload_folder = app_module.app.config['UPLOAD_FOLDER']
     app_module.app.config['UPLOAD_FOLDER'] = str(tmp_path / 'uploads')
     os.makedirs(app_module.app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-    source = tmp_path / 'orders.csv'
+    source = tmp_path / 'sales.csv'
     source.write_text('region,revenue\nNorth,100\nSouth,200\n', encoding='utf-8')
 
     dataset_record = workspace_store.create_dataset_record(
         'analyst',
-        source_name='orders.csv',
+        source_name='sales.csv',
         stored_path=str(source),
         source_type='upload',
         row_count=2,
         column_count=2,
         metadata={
-            'display_name': 'orders.csv',
+            'display_name': 'sales.csv',
             'columns': ['region', 'revenue'],
             'lineage_steps': [],
             'pipeline_steps': [],
-            'schema_snapshot': {
-                'columns': ['region', 'revenue'],
-                'dtypes': {'region': 'object', 'revenue': 'int64'},
-            },
-            'last_refreshed_at': '2026-01-01T00:00:00Z',
         },
     )
-
-    time.sleep(1)
-    source.write_text('region,revenue,margin\nNorth,100,25\nSouth,200,50\n', encoding='utf-8')
 
     try:
         with app_module.app.test_client() as client:
             token = _set_session(client, dataset_record['id'], str(source))
 
-            catalog_response = client.get('/workspace_catalog')
-            catalog_payload = catalog_response.get_json()
-            assert catalog_response.status_code == 200
-            assert catalog_payload['datasets'][0]['freshness']['status'] == 'stale_source'
+            save_response = client.post('/reports/save', json={
+                '_csrf_token': token,
+                'name': 'QBR summary',
+            })
+            save_payload = save_response.get_json()
+            assert save_response.status_code == 200
+            assert save_payload['report']['name'] == 'QBR summary'
 
-            refresh_response = client.post(f"/datasets/{dataset_record['id']}/refresh", json={'_csrf_token': token})
-            refresh_payload = refresh_response.get_json()
-            assert refresh_response.status_code == 200
-            assert refresh_payload['schema_changes']['added_columns'] == ['margin']
-            assert refresh_payload['dataset']['column_count'] == 3
+            list_response = client.get('/report_library')
+            list_payload = list_response.get_json()
+            assert list_response.status_code == 200
+            assert len(list_payload['reports']) == 1
+            assert list_payload['reports'][0]['section_count'] >= 1
+
+            report_id = save_payload['report']['id']
+            fetch_response = client.get(f'/reports/{report_id}')
+            fetch_payload = fetch_response.get_json()
+            assert fetch_response.status_code == 200
+            assert fetch_payload['report']['report']['dataset_name'] == 'sales.csv'
     finally:
         app_module.app.config['UPLOAD_FOLDER'] = original_upload_folder
