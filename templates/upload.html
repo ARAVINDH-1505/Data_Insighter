@@ -125,9 +125,10 @@
 }
 
 .recent-datasets-banner {
-    background: white;
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-color);
     border-radius: 14px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    box-shadow: var(--soft-shadow);
     padding: 20px;
     margin-bottom: 24px;
 }
@@ -144,8 +145,8 @@
     align-items: center;
     padding: 10px 14px;
     border-radius: 999px;
-    background: #fff7ed;
-    color: #9a3412;
+    background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+    color: var(--accent-color);
     text-decoration: none;
     font-weight: 600;
 }
@@ -156,23 +157,23 @@
 }
 
 .upload-area {
-    border: 2px dashed #ccc;
+    border: 2px dashed var(--border-strong);
     border-radius: 8px;
     padding: 40px;
     text-align: center;
     margin-bottom: 20px;
-    background: #f8f9fa;
+    background: var(--bg-soft);
     transition: all 0.3s ease;
 }
 
 .upload-area.dragover {
-    border-color: #007bff;
-    background: #e7f1ff;
+    border-color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 10%, transparent);
 }
 
 .upload-icon {
     font-size: 48px;
-    color: #007bff;
+    color: var(--primary-color);
     margin-bottom: 20px;
 }
 
@@ -186,7 +187,7 @@
 }
 
 .section-header p {
-    color: #667085;
+    color: var(--text-light);
     margin-top: 6px;
 }
 
@@ -195,14 +196,14 @@
     margin: 6px 0;
     padding: 6px 10px;
     border-radius: 999px;
-    background: #eff6ff;
-    color: #1d4ed8;
+    background: color-mix(in srgb, var(--info-color) 14%, transparent);
+    color: var(--info-color);
     font-size: 0.86rem;
     font-weight: 600;
 }
 
 .sample-datasets-section h2 {
-    color: #333;
+    color: var(--text-color);
     margin-bottom: 30px;
 }
 
@@ -214,11 +215,12 @@
 }
 
 .sample-dataset-card {
-    background: white;
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-color);
     border-radius: 10px;
     padding: 30px;
     text-align: center;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    box-shadow: var(--soft-shadow);
     transition: transform 0.3s ease;
 }
 
@@ -228,17 +230,17 @@
 
 .dataset-icon {
     font-size: 40px;
-    color: #ff9800;
+    color: var(--accent-color);
     margin-bottom: 20px;
 }
 
 .sample-dataset-card h3 {
-    color: #333;
+    color: var(--text-color);
     margin-bottom: 10px;
 }
 
 .sample-dataset-card p {
-    color: #666;
+    color: var(--text-light);
     margin-bottom: 20px;
 }
 
@@ -254,8 +256,8 @@
 }
 
 .spinner {
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #007bff;
+    border: 4px solid color-mix(in srgb, var(--text-light) 18%, transparent);
+    border-top: 4px solid var(--primary-color);
     border-radius: 50%;
     width: 40px;
     height: 40px;
@@ -269,17 +271,18 @@
 }
 
 .data-preview {
-    background: white;
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 20px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: var(--soft-shadow);
     margin-top: 20px;
 }
 
 .data-summary {
     margin-bottom: 20px;
     padding: 15px;
-    background: #f8f9fa;
+    background: var(--bg-soft);
     border-radius: 6px;
 }
 
@@ -309,13 +312,13 @@
 }
 
 .preview-table th {
-    background: #f8f9fa;
+    background: var(--bg-soft);
     font-weight: bold;
 }
 
 .column-selection {
     padding: 20px;
-    background: #f8f9fa;
+    background: var(--bg-soft);
     border-radius: 6px;
     margin-top: 20px;
 }
@@ -329,7 +332,7 @@
 .column-search input {
     flex: 1;
     padding: 8px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
 }
 
@@ -341,17 +344,17 @@
 .column-list {
     max-height: 300px;
     overflow-y: auto;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 10px;
-    background: white;
+    background: var(--bg-canvas-strong);
 }
 
 .column-item {
     display: flex;
     align-items: center;
     padding: 8px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-color);
 }
 
 .column-item:last-child {

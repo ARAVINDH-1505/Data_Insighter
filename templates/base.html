@@ -1,9 +1,21 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <script>
+        (function() {
+            try {
+                const savedTheme = localStorage.getItem('di-theme');
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', theme);
+            } catch (error) {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
     <title>{% block title %}Data Insighter{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/data-analysis.svg') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,6 +23,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     {% block head %}{% endblock %}
 </head>
@@ -37,9 +50,14 @@
     <!-- Navigation -->
     <nav class="navbar">
         <div class="nav-container">
-            <a href="{{ url_for('index') }}" class="nav-brand">
-                <span class="brand-text">Data Insighter</span>
-            </a>
+            <div class="nav-brand-group">
+                <a href="{{ url_for('index') }}" class="nav-brand">
+                    <span class="brand-text-wrap">
+                        <span class="brand-text">Data Insighter</span>
+                        <span class="nav-status">Semantic BI workspace</span>
+                    </span>
+                </a>
+            </div>
             <button class="nav-toggle" type="button" aria-label="Toggle navigation">
                 <i class="fas fa-bars"></i>
             </button>
@@ -60,10 +78,31 @@
                     <i class="fas fa-tachometer-alt"></i>
                     <span>Dashboard</span>
                 </a>
+                {% if not session.get('user') %}
+                <a href="{{ url_for('login') }}" class="nav-link {% if request.endpoint == 'login' %}active{% endif %}">
+                    <i class="fas fa-right-to-bracket"></i>
+                    <span>Login</span>
+                </a>
+                {% endif %}
+            </div>
+            <div class="nav-actions">
+                <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
+                    <i class="fas fa-moon"></i>
+                    <span>Dark</span>
+                </button>
                 {% if session.get('user') %}
-                <a href="{{ url_for('logout') }}" class="nav-link" style="margin-left: auto;">
+                <div class="user-pill">
+                    <i class="fas fa-user-circle"></i>
+                    <span>{{ session.get('user') }}</span>
+                </div>
+                <a href="{{ url_for('logout') }}" class="nav-link nav-link-quiet">
                     <i class="fas fa-sign-out-alt"></i>
                     <span>Logout</span>
+                </a>
+                {% else %}
+                <a href="{{ url_for('register') }}" class="nav-link nav-link-quiet {% if request.endpoint == 'register' %}active{% endif %}">
+                    <i class="fas fa-user-plus"></i>
+                    <span>Register</span>
                 </a>
                 {% endif %}
             </div>
@@ -89,11 +128,11 @@
         <div class="footer-content">
             <div class="footer-section">
                 <h2 class="footer-title">Data Insighter</h2>
-                <p class="footer-description">Transform your data into actionable insights</p>
+                <p class="footer-description">A workspace-first analytics assistant for profiling data, building governed dashboards, and turning raw tables into decision-ready stories.</p>
             </div>
             
             <div class="footer-section">
-                <h3 class="footer-heading">Quick Links</h3>
+                <h3 class="footer-heading">Platform</h3>
                 <ul class="footer-links">
                     <li><a href="{{ url_for('index') }}">Home</a></li>
                     <li><a href="{{ url_for('upload') }}">Upload Data</a></li>
@@ -103,9 +142,11 @@
             </div>
 
             <div class="footer-section">
-                <h3 class="footer-heading">Account</h3>
+                <h3 class="footer-heading">Workspace</h3>
                 <ul class="footer-links">
                     {% if session.get('user') %}
+                    <li><a href="{{ url_for('upload') }}">Dataset Catalog</a></li>
+                    <li><a href="{{ url_for('analysis') }}">Insights Workspace</a></li>
                     <li><a href="{{ url_for('logout') }}">Logout</a></li>
                     {% else %}
                     <li><a href="{{ url_for('login') }}">Login</a></li>
@@ -123,6 +164,21 @@
     <script>
         window.getCsrfToken = function() {
             return document.querySelector('meta[name="csrf-token"]')?.content || '';
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            const toggle = document.getElementById('themeToggle');
+            if (toggle) {
+                const icon = toggle.querySelector('i');
+                const label = toggle.querySelector('span');
+                const isDark = theme === 'dark';
+                icon.className = isDark ? 'fas fa-sun' : 'fas fa-moon';
+                label.textContent = isDark ? 'Light' : 'Dark';
+            }
+            window.dispatchEvent(new CustomEvent('di:theme-change', {
+                detail: { theme }
+            }));
         }
 
         // Global notification function
@@ -197,6 +253,13 @@
         });
 
         document.addEventListener('DOMContentLoaded', () => {
+            applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+            document.getElementById('themeToggle')?.addEventListener('click', () => {
+                const nextTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                applyTheme(nextTheme);
+                localStorage.setItem('di-theme', nextTheme);
+            });
+
             const revealTargets = document.querySelectorAll('.panel, .feature-card, .sample-card, .workspace-card, .workspace-current, .step-card, .summary-card, .dashboard-library, .dashboard-filters, .cta, .hero-panel, .story-card, .insight-card, .viz-block');
             if (!('IntersectionObserver' in window)) {
                 revealTargets.forEach((element) => element.classList.add('is-visible'));
@@ -207,12 +270,37 @@
                 entries.forEach((entry) => {
                     if (entry.isIntersecting) {
                         entry.target.classList.add('is-visible');
+                        if (window.gsap) {
+                            gsap.fromTo(entry.target, {
+                                y: 24,
+                                opacity: 0,
+                            }, {
+                                y: 0,
+                                opacity: 1,
+                                duration: 0.55,
+                                ease: 'power2.out',
+                            });
+                        }
                         observer.unobserve(entry.target);
                     }
                 });
             }, { threshold: 0.12 });
 
             revealTargets.forEach((element) => observer.observe(element));
+
+            if (window.gsap) {
+                gsap.fromTo('.navbar', { y: -24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: 'power2.out' });
+                gsap.fromTo('.hero-content, .auth-card, .upload-container .card:first-child', {
+                    y: 20,
+                    opacity: 0,
+                }, {
+                    y: 0,
+                    opacity: 1,
+                    duration: 0.7,
+                    ease: 'power2.out',
+                    stagger: 0.08,
+                });
+            }
         });
     </script>
     {% block scripts %}{% endblock %}
