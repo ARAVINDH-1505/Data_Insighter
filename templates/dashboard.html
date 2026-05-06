@@ -117,13 +117,13 @@
     position: sticky;
     top: 0;
     z-index: 100;
-    background: rgba(243, 247, 246, 0.92);
-    backdrop-filter: blur(14px);
-    padding: 14px 0;
+    background: color-mix(in srgb, var(--bg-page) 84%, transparent);
+    backdrop-filter: var(--panel-blur);
+    padding: 16px 0;
 }
 
 .dashboard-kicker {
-    color: var(--primary-color);
+    color: var(--accent-color);
     font-size: 0.78rem;
     font-weight: 800;
     text-transform: uppercase;
@@ -145,9 +145,10 @@
 .dashboard-highlight-card {
     padding: 18px;
     border-radius: 24px;
-    background: rgba(255, 255, 255, 0.82);
-    border: 1px solid rgba(255, 255, 255, 0.72);
-    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.08);
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--soft-shadow);
+    backdrop-filter: var(--panel-blur);
 }
 
 .dashboard-highlight-card span {
@@ -158,7 +159,7 @@
     height: 34px;
     border-radius: 999px;
     margin-bottom: 0.9rem;
-    background: rgba(15, 118, 110, 0.12);
+    background: color-mix(in srgb, var(--primary-color) 14%, transparent);
     color: var(--primary-color);
     font-weight: 800;
 }
@@ -169,26 +170,28 @@
 }
 
 .dashboard-subtitle {
-    color: #667085;
+    color: var(--text-light);
     margin-top: -6px;
 }
 
 .dashboard-library {
-    background: rgba(255, 255, 255, 0.84);
-    border: 1px solid rgba(255, 255, 255, 0.72);
+    background: var(--bg-canvas-strong);
+    border: 1px solid var(--border-color);
     border-radius: 24px;
     padding: 18px;
     margin-bottom: 18px;
-    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.08);
+    box-shadow: var(--soft-shadow);
+    backdrop-filter: var(--panel-blur);
 }
 
 .dashboard-filters {
-    background: rgba(255, 255, 255, 0.84);
-    border: 1px solid rgba(255, 255, 255, 0.72);
+    background: var(--bg-canvas-strong);
+    border: 1px solid var(--border-color);
     border-radius: 24px;
     padding: 18px;
     margin-bottom: 18px;
-    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.08);
+    box-shadow: var(--soft-shadow);
+    backdrop-filter: var(--panel-blur);
 }
 
 .filter-grid {
@@ -200,9 +203,10 @@
 .filter-grid select,
 .filter-grid input {
     padding: 10px 12px;
-    border: 1px solid #d0d5dd;
+    border: 1px solid var(--border-color);
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--bg-soft);
+    color: var(--text-color);
 }
 
 .library-header {
@@ -216,9 +220,10 @@
 .library-header input {
     min-width: 240px;
     padding: 10px 12px;
-    border: 1px solid #d0d5dd;
+    border: 1px solid var(--border-color);
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--bg-soft);
+    color: var(--text-color);
 }
 
 .dashboard-library-list {
@@ -228,11 +233,18 @@
 }
 
 .dashboard-library-item {
-    border: 1px solid rgba(15, 118, 110, 0.08);
+    border: 1px solid var(--border-color);
     border-radius: 18px;
     padding: 12px 14px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(243, 247, 246, 0.92));
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-canvas-strong) 94%, transparent), color-mix(in srgb, var(--bg-soft) 92%, transparent));
     min-width: 220px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.dashboard-library-item:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--surface-shadow);
+    border-color: var(--border-strong);
 }
 
 .dashboard-library-item h4 {
@@ -241,7 +253,7 @@
 
 .dashboard-library-item p,
 .library-empty {
-    color: #667085;
+    color: var(--text-light);
     margin-bottom: 10px;
 }
 
@@ -249,18 +261,18 @@
     min-height: 600px;
     min-width: 100%;
     width: fit-content;
-    border: 2px dashed rgba(15, 118, 110, 0.24);
+    border: 2px dashed color-mix(in srgb, var(--primary-color) 24%, transparent);
     border-radius: 28px;
     padding: 24px;
     position: relative;
     resize: none; /* We'll use interact.js for resizing */
     margin: 0 auto;
     background:
-        linear-gradient(rgba(15, 118, 110, 0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(15, 118, 110, 0.04) 1px, transparent 1px),
-        rgba(255, 255, 255, 0.52);
+        linear-gradient(var(--chart-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--chart-grid) 1px, transparent 1px),
+        linear-gradient(180deg, color-mix(in srgb, var(--chart-surface) 88%, transparent), color-mix(in srgb, var(--bg-canvas) 96%, transparent));
     background-size: 28px 28px, 28px 28px, auto;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--white) 14%, transparent);
 }
 
 .dashboard-empty-state {
@@ -270,7 +282,7 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    color: #667085;
+    color: var(--text-light);
     padding: 2rem;
 }
 
@@ -288,24 +300,25 @@
     border-radius: 22px;
     display: grid;
     place-items: center;
-    background: linear-gradient(135deg, rgba(15, 118, 110, 0.14), rgba(249, 115, 22, 0.14));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--primary-color) 16%, transparent), color-mix(in srgb, var(--accent-color) 16%, transparent));
     color: var(--primary-color);
     font-size: 1.8rem;
 }
 
 .viz-block {
     position: absolute;
-    background: rgba(255, 255, 255, 0.96);
-    border: 1px solid rgba(15, 118, 110, 0.08);
+    background: var(--bg-canvas-strong);
+    border: 1px solid var(--border-color);
     border-radius: 20px;
-    box-shadow: 0 20px 36px rgba(15, 23, 42, 0.12);
+    box-shadow: var(--surface-shadow);
     overflow: hidden;
+    backdrop-filter: var(--panel-blur);
 }
 
 .viz-header {
-    background: linear-gradient(180deg, rgba(244, 247, 250, 0.98), rgba(238, 244, 243, 0.96));
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-soft) 98%, transparent), color-mix(in srgb, var(--bg-muted) 88%, transparent));
     padding: 10px 14px;
-    border-bottom: 1px solid rgba(15, 118, 110, 0.08);
+    border-bottom: 1px solid var(--border-color);
     cursor: move;
     display: flex;
     justify-content: space-between;
@@ -319,7 +332,7 @@
 }
 
 .viz-remove {
-    color: #dc3545;
+    color: var(--error-color);
     cursor: pointer;
     padding: 4px;
 }
@@ -336,16 +349,17 @@
     padding: 1rem;
     text-align: center;
     border-radius: 18px;
-    background: rgba(254, 242, 242, 0.92);
-    color: #b42318;
+    background: var(--error-bg);
+    color: var(--error-text);
     font-weight: 600;
+    border: 1px solid var(--error-border);
 }
 
 .resize-handle {
     position: absolute;
     width: 10px;
     height: 10px;
-    background: #007bff;
+    background: var(--info-color);
     border-radius: 50%;
 }
 
@@ -360,7 +374,7 @@
     height: 20px;
     right: 0;
     bottom: 0;
-    background: linear-gradient(135deg, var(--primary-color), #14988f);
+    background: linear-gradient(135deg, var(--primary-color), color-mix(in srgb, var(--primary-color) 72%, var(--accent-color)));
     border-radius: 12px 0 24px 0;
     cursor: se-resize;
     z-index: 10;
@@ -372,36 +386,38 @@
 }
 
 .dashboard-container::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: color-mix(in srgb, var(--bg-soft) 92%, transparent);
     border-radius: 4px;
 }
 
 .dashboard-container::-webkit-scrollbar-thumb {
-    background: #888;
+    background: color-mix(in srgb, var(--text-light) 70%, transparent);
     border-radius: 4px;
 }
 
 .dashboard-container::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: color-mix(in srgb, var(--text-color) 72%, transparent);
 }
 
 .text-box {
     position: absolute;
-    background: rgba(255, 255, 255, 0.84);
-    border: 1px solid rgba(15, 118, 110, 0.08);
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-color);
     border-radius: 18px;
-    box-shadow: 0 20px 36px rgba(15, 23, 42, 0.12);
+    box-shadow: var(--surface-shadow);
     padding: 10px;
     min-width: 100px;
     min-height: 50px;
     resize: both;
     overflow: auto;
+    color: var(--text-color);
+    backdrop-filter: var(--panel-blur);
 }
 
 .text-box-header {
-    background: linear-gradient(180deg, rgba(244, 247, 250, 0.98), rgba(238, 244, 243, 0.96));
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-soft) 98%, transparent), color-mix(in srgb, var(--bg-muted) 88%, transparent));
     padding: 8px;
-    border-bottom: 1px solid rgba(15, 118, 110, 0.08);
+    border-bottom: 1px solid var(--border-color);
     cursor: move;
     display: flex;
     justify-content: space-between;
@@ -424,8 +440,10 @@
 
 .text-box-controls select, .text-box-controls input {
     padding: 2px 5px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 3px;
+    background: var(--bg-soft);
+    color: var(--text-color);
 }
 
 .header-buttons {
@@ -440,7 +458,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--bg-overlay);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -448,12 +466,15 @@
 }
 
 .modal-content {
-    background: white;
+    background: var(--bg-canvas-strong);
     padding: 2rem;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border-radius: 18px;
+    box-shadow: var(--surface-shadow);
+    border: 1px solid var(--border-color);
     max-width: 500px;
     width: 90%;
+    color: var(--text-color);
+    backdrop-filter: var(--panel-blur);
 }
 
 .save-options {
@@ -514,6 +535,75 @@ document.addEventListener('DOMContentLoaded', function() {
     const dateFilterEnd = document.getElementById('dateFilterEnd');
     const dashboardFilterStatus = document.getElementById('dashboardFilterStatus');
     let dashboardFilterState = JSON.parse(localStorage.getItem(dashboardFilterStorageKey) || '{}');
+
+    function themeToken(name, fallback = '') {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+    }
+
+    function themedAxisLayout(axis = {}) {
+        const textColor = themeToken('--text-color', '#152132');
+        const mutedColor = themeToken('--text-light', '#5d6979');
+        const title = axis.title
+            ? typeof axis.title === 'string'
+                ? { text: axis.title, font: { color: textColor } }
+                : {
+                    ...axis.title,
+                    font: {
+                        ...(axis.title.font || {}),
+                        color: textColor,
+                    },
+                }
+            : axis.title;
+
+        return {
+            ...axis,
+            title,
+            gridcolor: axis.gridcolor || themeToken('--chart-grid', 'rgba(15, 23, 42, 0.08)'),
+            zerolinecolor: axis.zerolinecolor || themeToken('--chart-grid-strong', 'rgba(15, 23, 42, 0.14)'),
+            linecolor: axis.linecolor || themeToken('--chart-axis', 'rgba(15, 23, 42, 0.22)'),
+            tickfont: {
+                ...(axis.tickfont || {}),
+                color: axis.tickfont?.color || mutedColor,
+            },
+        };
+    }
+
+    function themedPlotlyLayout(baseLayout = {}, container) {
+        const textColor = themeToken('--text-color', '#152132');
+        const mutedColor = themeToken('--text-light', '#5d6979');
+        return {
+            ...baseLayout,
+            paper_bgcolor: 'transparent',
+            plot_bgcolor: 'transparent',
+            colorway: [
+                themeToken('--primary-color', '#0f766e'),
+                themeToken('--accent-color', '#f97316'),
+                themeToken('--info-color', '#2563eb'),
+                themeToken('--success-color', '#16a34a'),
+            ],
+            font: {
+                ...(baseLayout.font || {}),
+                family: themeToken('--font-body', 'Manrope, sans-serif'),
+                color: textColor,
+            },
+            legend: {
+                ...(baseLayout.legend || {}),
+                bgcolor: 'transparent',
+                font: {
+                    ...(baseLayout.legend?.font || {}),
+                    color: mutedColor,
+                },
+            },
+            xaxis: themedAxisLayout(baseLayout.xaxis || {}),
+            yaxis: themedAxisLayout(baseLayout.yaxis || {}),
+            width: container?.offsetWidth || baseLayout.width || 360,
+            height: container?.offsetHeight || baseLayout.height || 260,
+        };
+    }
+
+    function currentThemeTextColorHex() {
+        return document.documentElement.getAttribute('data-theme') === 'dark' ? '#ebf3ff' : '#152132';
+    }
 
     function normalizeViz(viz, index) {
         return {
@@ -581,6 +671,26 @@ document.addEventListener('DOMContentLoaded', function() {
         dashboardArea.querySelectorAll('.viz-block').forEach(element => element.remove());
         loadDashboard();
     }
+
+    function syncThemeAwareTextBoxes() {
+        dashboardArea.querySelectorAll('.text-box').forEach((textBox) => {
+            const content = textBox.querySelector('.text-box-content');
+            const colorInput = textBox.querySelector('input[type="color"]');
+            if (!content || content.dataset.manualColor === 'true') {
+                return;
+            }
+            const nextColor = currentThemeTextColorHex();
+            content.style.color = nextColor;
+            if (colorInput) {
+                colorInput.value = nextColor;
+            }
+        });
+    }
+
+    window.addEventListener('di:theme-change', () => {
+        rerenderDashboardCharts();
+        syncThemeAwareTextBoxes();
+    });
 
     async function loadFilterOptions() {
         try {
@@ -728,11 +838,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
             if (data.success) {
                 const container = block.querySelector('.plot-container');
-                await Plotly.newPlot(container, data.visualization.data, {
+                await Plotly.newPlot(container, data.visualization.data, themedPlotlyLayout({
                     ...data.visualization.layout,
-                    width: container.offsetWidth || 360,
-                    height: container.offsetHeight || 260
-                });
+                }, container));
                 container.on('plotly_click', (eventData) => {
                     const point = eventData?.points?.[0];
                     const clickedValue = point?.x ?? point?.label;
@@ -1031,7 +1139,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Color picker
         const colorInput = document.createElement('input');
         colorInput.type = 'color';
-        colorInput.value = '#000000';
+        colorInput.value = currentThemeTextColorHex();
         
         // Remove button
         const removeButton = document.createElement('button');
@@ -1040,7 +1148,7 @@ document.addEventListener('DOMContentLoaded', function() {
         removeButton.style.border = 'none';
         removeButton.style.cursor = 'pointer';
         removeButton.style.fontSize = '20px';
-        removeButton.style.color = '#dc3545';
+        removeButton.style.color = themeToken('--error-color', '#dc2626');
         
         const content = document.createElement('div');
         content.className = 'text-box-content';
@@ -1049,6 +1157,7 @@ document.addEventListener('DOMContentLoaded', function() {
         content.style.fontFamily = fontSelect.value;
         content.style.fontSize = sizeSelect.value;
         content.style.color = colorInput.value;
+        content.dataset.manualColor = 'false';
         
         controls.appendChild(fontSelect);
         controls.appendChild(sizeSelect);
@@ -1108,10 +1217,12 @@ document.addEventListener('DOMContentLoaded', function() {
         
         colorInput.addEventListener('input', function() {
             content.style.color = this.value;
+            content.dataset.manualColor = 'true';
         });
         
         removeButton.addEventListener('click', function() {
             textBox.remove();
+            renderDashboardEmptyState();
         });
         
         // Hide controls and border on Enter, show on double click
@@ -1158,9 +1269,9 @@ document.addEventListener('DOMContentLoaded', function() {
         content.addEventListener('dblclick', function() {
             content.contentEditable = true;
             controls.style.display = 'flex';
-            header.style.borderBottom = '1px solid #ddd';
-            textBox.style.border = '1px solid #ddd';
-            textBox.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            header.style.borderBottom = `1px solid ${themeToken('--border-color', 'rgba(15, 23, 42, 0.08)')}`;
+            textBox.style.border = `1px solid ${themeToken('--border-color', 'rgba(15, 23, 42, 0.08)')}`;
+            textBox.style.boxShadow = themeToken('--soft-shadow', '0 16px 34px rgba(15, 23, 42, 0.08)');
             textBox.style.resize = 'both';
             // Show remove button again
             removeButton.style.display = '';
