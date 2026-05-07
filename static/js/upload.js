@@ -49,8 +49,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const files = e.target.files;
         if (files.length > 0) {
             const file = files[0];
-            if (!file.name.match(/\.(csv|tsv|json|jsonl|ndjson|xlsx|xls|parquet)$/i)) {
-                showError('Please upload a CSV, TSV, JSON, Excel, or Parquet file');
+            if (!file.name.match(/\.(csv|tsv|json|jsonl|ndjson|xlsx|xls|parquet|db|sqlite|sqlite3)$/i)) {
+                showError('Please upload a CSV, TSV, JSON, Excel, Parquet, or SQLite file');
                 return;
             }
             if (file.size > 16 * 1024 * 1024) {
@@ -107,6 +107,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 <span class="summary-label">Total Columns:</span>
                 <span class="summary-value">${data.total_columns}</span>
             </div>
+            ${data.source_table ? `
+            <div class="summary-item">
+                <span class="summary-label">Source Table:</span>
+                <span class="summary-value">${data.source_table}</span>
+            </div>` : ''}
         `;
 
         // Display preview table

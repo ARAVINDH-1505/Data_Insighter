@@ -11,9 +11,9 @@ from access_control_service import apply_row_policies
 from file_utils import read_data_file
 
 
-def _dataset_signature(filepath: str) -> tuple[str, int, int]:
+def _dataset_signature(filepath: str, source_table: str | None = None) -> tuple[str, int, int, str]:
     stat = os.stat(filepath)
-    return os.path.abspath(filepath), int(stat.st_mtime_ns), int(stat.st_size)
+    return os.path.abspath(filepath), int(stat.st_mtime_ns), int(stat.st_size), source_table or ''
 
 
 def prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -47,13 +47,13 @@ def prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @lru_cache(maxsize=24)
-def _cached_prepared_dataframe(signature: tuple[str, int, int]) -> pd.DataFrame:
-    filepath, _, _ = signature
-    return prepare_dataframe(read_data_file(filepath))
+def _cached_prepared_dataframe(signature: tuple[str, int, int, str]) -> pd.DataFrame:
+    filepath, _, _, source_table = signature
+    return prepare_dataframe(read_data_file(filepath, source_table=source_table or None))
 
 
-def load_prepared_dataframe(filepath: str) -> pd.DataFrame:
-    return _cached_prepared_dataframe(_dataset_signature(filepath)).copy(deep=True)
+def load_prepared_dataframe(filepath: str, source_table: str | None = None) -> pd.DataFrame:
+    return _cached_prepared_dataframe(_dataset_signature(filepath, source_table=source_table)).copy(deep=True)
 
 
 def load_accessible_dataframe(
@@ -61,7 +61,8 @@ def load_accessible_dataframe(
     dataset_record: Optional[Dict[str, Any]] = None,
     username: Optional[str] = None,
 ) -> pd.DataFrame:
-    prepared = load_prepared_dataframe(filepath)
+    source_table = (dataset_record or {}).get('metadata', {}).get('source_table')
+    prepared = load_prepared_dataframe(filepath, source_table=source_table)
     if dataset_record and username:
         return apply_row_policies(prepared, dataset_record, username)
     return prepared

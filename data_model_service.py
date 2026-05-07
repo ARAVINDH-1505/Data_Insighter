@@ -79,7 +79,7 @@ def suggest_relationships(dataset_records: List[Dict[str, Any]]) -> Dict[str, An
 
     for record in dataset_records:
         try:
-            df = read_data_file(record['stored_path'])
+            df = read_data_file(record['stored_path'], source_table=record.get('metadata', {}).get('source_table'))
         except Exception:
             continue
 
@@ -175,6 +175,6 @@ def join_datasets(
     right_key: str,
     join_type: str = 'left',
 ) -> pd.DataFrame:
-    left_df = read_data_file(left_record['stored_path'])
-    right_df = read_data_file(right_record['stored_path'])
+    left_df = read_data_file(left_record['stored_path'], source_table=left_record.get('metadata', {}).get('source_table'))
+    right_df = read_data_file(right_record['stored_path'], source_table=right_record.get('metadata', {}).get('source_table'))
     return join_dataframes(left_df, right_df, left_key, right_key, join_type)

@@ -83,10 +83,11 @@ def dataset_freshness(username: str, record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def refresh_dataset_frame(username: str, record: Dict[str, Any]) -> pd.DataFrame:
+    source_table = record.get('metadata', {}).get('source_table')
     if record.get('source_type') in {'upload', 'sample'}:
-        return read_data_file(record['stored_path'])
+        return read_data_file(record['stored_path'], source_table=source_table)
     if supports_pipeline_rebuild(record):
         return build_dataset_from_record(username, record)
     if record.get('stored_path') and os.path.exists(record['stored_path']):
-        return read_data_file(record['stored_path'])
+        return read_data_file(record['stored_path'], source_table=source_table)
     raise ValueError('This dataset cannot be refreshed because its source definition is incomplete.')

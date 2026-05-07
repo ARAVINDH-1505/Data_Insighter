@@ -44,9 +44,10 @@ def build_dataset_from_record(
 
     source_type = record.get('source_type')
     metadata = record.get('metadata', {})
+    source_table = metadata.get('source_table')
 
     if source_type in {'upload', 'sample'}:
-        df = read_data_file(record['stored_path'])
+        df = read_data_file(record['stored_path'], source_table=source_table)
     elif source_type == 'rebuilt':
         parent_id = record.get('parent_dataset_id')
         if not parent_id:
@@ -84,7 +85,7 @@ def build_dataset_from_record(
         )
     else:
         if record.get('stored_path'):
-            df = read_data_file(record['stored_path'])
+            df = read_data_file(record['stored_path'], source_table=source_table)
         else:
             raise ValueError(f"Unsupported dataset source type for rebuild: {source_type}")
 

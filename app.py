@@ -453,6 +453,8 @@ def upload():
                 
                 # Read the file
                 df = read_data_file(filepath)
+                selected_table = df.attrs.get('source_table')
+                available_tables = df.attrs.get('available_tables') or []
                 dataset_record = create_dataset_record(
                     session['user'],
                     source_name=file.filename,
@@ -467,6 +469,8 @@ def upload():
                             'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
                             'schema_snapshot': schema_snapshot(df),
                             'source_extension': extension,
+                            'source_table': selected_table,
+                            'available_tables': available_tables,
                         },
                     ),
                 )
@@ -520,7 +524,9 @@ def upload():
                     'total_rows': len(df),
                     'total_columns': len(df.columns),
                     'columns': columns_info,
-                    'preview_data': preview_data
+                    'preview_data': preview_data,
+                    'source_table': selected_table,
+                    'available_tables': available_tables,
                 }
                 
                 return jsonify({
@@ -533,7 +539,7 @@ def upload():
                 cleanup_uploaded_file(filepath)
                 return error_response(str(e), 400)
 
-        return error_response('Unsupported file format. Please upload CSV, TSV, JSON, Excel, or Parquet data.', 400)
+        return error_response('Unsupported file format. Please upload CSV, TSV, JSON, Excel, Parquet, or SQLite data.', 400)
     
     # Get list of sample datasets for the template
     sample_datasets = [f for f in os.listdir(app.config['SAMPLE_DATASETS']) 
@@ -552,6 +558,8 @@ def use_sample(filename):
     if os.path.exists(filepath) and allowed_file(filename):
         try:
             df = read_data_file(filepath)
+            selected_table = df.attrs.get('source_table')
+            available_tables = df.attrs.get('available_tables') or []
             # FIX #5: Store filepath only in server session, never send to client
             session['current_filepath'] = filepath
             dataset_record = create_dataset_record(
@@ -568,6 +576,8 @@ def use_sample(filename):
                         'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
                         'schema_snapshot': schema_snapshot(df),
                         'source_extension': filename.rsplit('.', 1)[1].lower(),
+                        'source_table': selected_table,
+                        'available_tables': available_tables,
                     },
                 ),
             )
@@ -780,7 +790,7 @@ def apply_dataset_transform():
             return access_error
 
         _, _, filepath = load_active_dataset_frame()
-        df = read_data_file(filepath)
+        df = read_data_file(filepath, source_table=current_record.get('metadata', {}).get('source_table'))
         transformed_df, description = apply_transform(df, operation, options)
         if transformed_df.empty:
             return error_response('This transform produced an empty dataset, so it was not applied.', 400)

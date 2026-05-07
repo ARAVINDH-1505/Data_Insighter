@@ -1,3 +1,5 @@
+import sqlite3
+
 import pandas as pd
 
 from file_utils import read_data_file
@@ -51,3 +53,23 @@ def test_read_parquet_file(tmp_path):
     df = read_data_file(str(source))
 
     assert df.to_dict(orient='records') == expected.to_dict(orient='records')
+
+
+def test_read_sqlite_file(tmp_path):
+    source = tmp_path / 'warehouse.db'
+    connection = sqlite3.connect(source)
+    try:
+        connection.execute('CREATE TABLE sales (region TEXT, revenue INTEGER)')
+        connection.execute("INSERT INTO sales VALUES ('North', 120), ('South', 95)")
+        connection.commit()
+    finally:
+        connection.close()
+
+    df = read_data_file(str(source))
+
+    assert df.to_dict(orient='records') == [
+        {'region': 'North', 'revenue': 120},
+        {'region': 'South', 'revenue': 95},
+    ]
+    assert df.attrs['source_table'] == 'sales'
+    assert 'sales' in df.attrs['available_tables']
