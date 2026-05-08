@@ -84,6 +84,16 @@ TABLE_DEFINITIONS = {
             payload TEXT NOT NULL
         )
     ''',
+    'refresh_jobs': '''
+        CREATE TABLE IF NOT EXISTS refresh_jobs (
+            id TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            updated_at TEXT,
+            dataset_id TEXT,
+            artifact_id TEXT,
+            payload TEXT NOT NULL
+        )
+    ''',
 }
 
 TABLE_INDEXES = (
@@ -98,6 +108,8 @@ TABLE_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_audit_owner_updated ON audit_events(owner, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_audit_dataset ON audit_events(dataset_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_audit_artifact ON audit_events(artifact_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_refresh_jobs_owner_updated ON refresh_jobs(owner, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_refresh_jobs_dataset ON refresh_jobs(dataset_id, updated_at DESC)",
 )
 
 def ensure_workspace_dirs() -> None:
@@ -740,3 +752,55 @@ def list_audit_events(
         artifact_id=artifact_id,
         limit=limit,
     )
+
+
+def create_refresh_job_record(
+    username: str,
+    dataset_id: str,
+    cadence_minutes: int,
+    mode: str = 'full',
+    incremental_column: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    ensure_workspace_dirs()
+    job_id = f"job_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
+    now = datetime.utcnow().isoformat() + 'Z'
+    next_run_at = datetime.utcnow().isoformat() + 'Z'
+    record = {
+        'id': job_id,
+        'owner': username,
+        'dataset_id': dataset_id,
+        'cadence_minutes': int(cadence_minutes),
+        'mode': mode,
+        'incremental_column': incremental_column,
+        'enabled': True,
+        'created_at': now,
+        'updated_at': now,
+        'next_run_at': next_run_at,
+        'last_run_at': None,
+        'last_status': 'scheduled',
+        'last_error': None,
+        'metadata': metadata or {},
+    }
+    return _upsert_record('refresh_jobs', username, record)
+
+
+def update_refresh_job_record(username: str, job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    record = get_refresh_job_record(username, job_id)
+    if not record:
+        return None
+    record.update(updates)
+    record['updated_at'] = datetime.utcnow().isoformat() + 'Z'
+    return _upsert_record('refresh_jobs', username, record)
+
+
+def get_refresh_job_record(username: str, job_id: str) -> Optional[Dict[str, Any]]:
+    return _fetch_record('refresh_jobs', username, job_id)
+
+
+def list_refresh_job_records(username: str, dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    return _list_records('refresh_jobs', owner=username, dataset_id=dataset_id)
+
+
+def list_all_refresh_job_records(dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    return _list_records('refresh_jobs', dataset_id=dataset_id)

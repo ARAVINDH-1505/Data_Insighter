@@ -28,6 +28,13 @@ from dataset_refresh_service import dataset_freshness, refresh_dataset_frame, sc
 from file_utils import SUPPORTED_EXTENSIONS, read_data_file
 from governance_service import build_governance_summary
 from dotenv import load_dotenv
+from refresh_job_service import (
+    create_refresh_schedule,
+    list_refresh_schedules,
+    perform_dataset_refresh,
+    run_refresh_job_by_id,
+    start_refresh_scheduler,
+)
 from workspace_store import (
     create_dashboard_record,
     create_dataset_record,
@@ -37,10 +44,14 @@ from workspace_store import (
     ensure_workspace_dirs,
     get_dashboard_record,
     get_dataset_record,
+    get_refresh_job_record,
     get_report_record,
     list_all_dashboard_records,
+    list_all_refresh_job_records,
+    list_refresh_job_records,
     update_dataset_record,
     update_dashboard_record,
+    update_refresh_job_record,
     update_report_record,
     list_audit_events,
     list_all_report_records,
@@ -93,16 +104,20 @@ app = Flask(__name__)
 app.secret_key = load_app_secret_key()
 
 app.config['UPLOAD_FOLDER'] = os.path.join(APP_ROOT, 'uploads')
+app.config['MANAGED_DATASETS_FOLDER'] = os.path.join(app.config['UPLOAD_FOLDER'], 'managed')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  
 app.config['SAMPLE_DATASETS'] = os.path.join(APP_ROOT, 'sample_datasets')
 
 # Ensure required folders exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['MANAGED_DATASETS_FOLDER'], exist_ok=True)
 os.makedirs(app.config['SAMPLE_DATASETS'], exist_ok=True)
 os.makedirs(os.path.join(app.static_folder, 'css'), exist_ok=True)
 os.makedirs(os.path.join(app.static_folder, 'js'), exist_ok=True)
 os.makedirs(os.path.join(app.static_folder, 'images'), exist_ok=True)
 ensure_workspace_dirs()
+
+_background_refresh_started = False
 
 # ---------- User store helpers (FIX #2 + #3) ----------
 USERS_FILE = os.path.join(APP_ROOT, 'users.json')
@@ -185,6 +200,16 @@ app.jinja_env.globals['csrf_token'] = generate_csrf_token
 @app.context_processor
 def inject_template_globals():
     return {'current_year': datetime.now().year}
+
+
+@app.before_request
+def start_background_refresh_scheduler():
+    global _background_refresh_started
+    if _background_refresh_started or app.config.get('TESTING'):
+        return
+    start_refresh_scheduler(app.config['MANAGED_DATASETS_FOLDER'])
+    _background_refresh_started = True
+
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in SUPPORTED_EXTENSIONS
@@ -1168,61 +1193,11 @@ def refresh_dataset(dataset_id):
         return access_error
 
     try:
-        refreshed_df = refresh_dataset_frame(session['user'], record)
-        if refreshed_df.empty:
-            return error_response('The refreshed dataset is empty, so the refresh was cancelled.', 400)
-
-        metadata = record.get('metadata', {}).copy()
-        diff = schema_changes(metadata.get('schema_snapshot'), refreshed_df)
-        refreshed_path = record['stored_path']
-        old_path = record.get('stored_path')
-
-        if record.get('source_type') not in {'upload', 'sample'}:
-            refreshed_path, _ = store_derived_dataset(
-                refreshed_df,
-                metadata.get('display_name') or record.get('source_name') or 'dataset',
-            )
-
-        refresh_event = {
-            'operation': 'refresh_dataset',
-            'kind': 'system',
-            'description': f"Refreshed dataset materialization with {len(refreshed_df)} rows and {len(refreshed_df.columns)} columns.",
-            'created_at': datetime.utcnow().isoformat() + 'Z',
-        }
-        refresh_history = (metadata.get('refresh_history') or [])[-9:] + [refresh_event]
-        updated_metadata = {
-            **metadata,
-            'columns': refreshed_df.columns.tolist(),
-            'schema_snapshot': diff['current'],
-            'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
-            'last_schema_change': {
-                'added_columns': diff['added_columns'],
-                'removed_columns': diff['removed_columns'],
-                'changed_types': diff['changed_types'],
-            },
-            'refresh_history': refresh_history,
-            'lineage_steps': metadata.get('lineage_steps', []) + [refresh_event],
-        }
-        updated_record = update_dataset_record(
+        updated_record, refreshed_df, diff, refresh_details = perform_dataset_refresh(
             session['user'],
-            dataset_id,
-            {
-                'stored_path': refreshed_path,
-                'row_count': len(refreshed_df),
-                'column_count': len(refreshed_df.columns),
-                'metadata': updated_metadata,
-            },
+            record,
+            app.config['MANAGED_DATASETS_FOLDER'],
         )
-        if not updated_record:
-            return error_response('Could not persist refreshed dataset metadata.', 500)
-
-        if (
-            old_path
-            and old_path != refreshed_path
-            and is_path_within_directory(app.config['UPLOAD_FOLDER'], old_path)
-            and os.path.exists(old_path)
-        ):
-            cleanup_uploaded_file(old_path)
 
         session['current_dataset_id'] = updated_record['id']
         session['current_filepath'] = updated_record['stored_path']
@@ -1231,6 +1206,8 @@ def refresh_dataset(dataset_id):
             dataset_id=updated_record['id'],
             artifact_id=updated_record['id'],
             details={
+                'mode': refresh_details.get('mode'),
+                'rows_added': refresh_details.get('rows_added'),
                 'added_columns': diff['added_columns'],
                 'removed_columns': diff['removed_columns'],
                 'changed_type_count': len(diff['changed_types']),
@@ -1247,10 +1224,137 @@ def refresh_dataset(dataset_id):
                 'removed_columns': diff['removed_columns'],
                 'changed_types': diff['changed_types'],
             },
+            'refresh_details': refresh_details,
             'summary': processor.get_analysis_summary(),
         })
     except Exception as e:
         return error_response(str(e), 400)
+
+
+@app.route('/datasets/<dataset_id>/refresh_jobs')
+@login_required
+def dataset_refresh_jobs(dataset_id):
+    record = get_accessible_dataset_record(session['user'], dataset_id)
+    if not record:
+        return error_response('Dataset not found in your workspace.', 404)
+    jobs = list_all_refresh_job_records(dataset_id=dataset_id)
+    visible_jobs = [job for job in jobs if can_view_record(record, session['user'])]
+    return jsonify({'success': True, 'jobs': visible_jobs})
+
+
+@app.route('/datasets/<dataset_id>/refresh_jobs', methods=['POST'])
+@login_required
+def create_dataset_refresh_job(dataset_id):
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    record = get_accessible_dataset_record(session['user'], dataset_id)
+    if not record:
+        return error_response('Dataset not found in your workspace.', 404)
+    access_error = require_dataset_edit_access(record)
+    if access_error:
+        return access_error
+
+    payload = request.get_json(silent=True) or {}
+    cadence_minutes = int(payload.get('cadence_minutes') or 60)
+    mode = (payload.get('mode') or 'full').strip().lower()
+    incremental_column = (payload.get('incremental_column') or '').strip() or None
+    if cadence_minutes < 5:
+        return error_response('Refresh schedules must be at least 5 minutes apart.', 400)
+    if mode not in {'full', 'incremental'}:
+        return error_response('Choose either full or incremental refresh mode.', 400)
+    if mode == 'incremental' and not incremental_column:
+        return error_response('Choose a cursor column for incremental refresh.', 400)
+
+    try:
+        updated_record, job = create_refresh_schedule(
+            session['user'],
+            record,
+            app.config['MANAGED_DATASETS_FOLDER'],
+            cadence_minutes,
+            mode=mode,
+            incremental_column=incremental_column,
+        )
+        session['current_dataset_id'] = updated_record['id']
+        session['current_filepath'] = updated_record['stored_path']
+        record_audit_event(
+            'refresh_schedule_created',
+            dataset_id=updated_record['id'],
+            artifact_type='refresh_job',
+            artifact_id=job['id'],
+            details={
+                'cadence_minutes': cadence_minutes,
+                'mode': mode,
+                'incremental_column': incremental_column,
+            },
+        )
+        return jsonify({'success': True, 'dataset': updated_record, 'job': job})
+    except Exception as e:
+        return error_response(str(e), 400)
+
+
+@app.route('/refresh_jobs/<job_id>/run', methods=['POST'])
+@login_required
+def run_dataset_refresh_job(job_id):
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    job = get_refresh_job_record(session['user'], job_id)
+    if not job:
+        return error_response('Refresh schedule not found.', 404)
+    record = get_accessible_dataset_record(session['user'], job.get('dataset_id'))
+    access_error = require_dataset_edit_access(record)
+    if access_error:
+        return access_error
+
+    try:
+        result = run_refresh_job_by_id(session['user'], job_id, app.config['MANAGED_DATASETS_FOLDER'])
+        if not result.get('success'):
+            return error_response(result.get('error') or 'Refresh job failed.', 400)
+        updated_record = result['dataset']
+        session['current_dataset_id'] = updated_record['id']
+        session['current_filepath'] = updated_record['stored_path']
+        record_audit_event(
+            'refresh_job_ran',
+            dataset_id=updated_record['id'],
+            artifact_type='refresh_job',
+            artifact_id=job_id,
+            details=result.get('refresh_details') or {},
+        )
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        return error_response(str(e), 400)
+
+
+@app.route('/refresh_jobs/<job_id>/toggle', methods=['POST'])
+@login_required
+def toggle_refresh_job(job_id):
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    job = get_refresh_job_record(session['user'], job_id)
+    if not job:
+        return error_response('Refresh schedule not found.', 404)
+    record = get_accessible_dataset_record(session['user'], job.get('dataset_id'))
+    access_error = require_dataset_edit_access(record)
+    if access_error:
+        return access_error
+
+    payload = request.get_json(silent=True) or {}
+    enabled = bool(payload.get('enabled', True))
+    updated_job = update_refresh_job_record(
+        session['user'],
+        job_id,
+        {'enabled': enabled},
+    )
+    record_audit_event(
+        'refresh_job_toggled',
+        dataset_id=record['id'],
+        artifact_type='refresh_job',
+        artifact_id=job_id,
+        details={'enabled': enabled},
+    )
+    return jsonify({'success': True, 'job': updated_job})
 
 
 @app.route('/workspace_catalog')

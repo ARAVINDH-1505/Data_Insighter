@@ -164,6 +164,42 @@
             <div class="panel">
                 <div class="panel-header">
                     <div>
+                        <p class="eyebrow">Refresh Automation</p>
+                        <h2>Schedules and materialization</h2>
+                    </div>
+                </div>
+                <div class="builder-grid">
+                    <div class="control-group">
+                        <label for="refreshMode">Refresh mode</label>
+                        <select id="refreshMode">
+                            <option value="full">Full refresh</option>
+                            <option value="incremental">Incremental append</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="refreshCadenceMinutes">Cadence (minutes)</label>
+                        <input id="refreshCadenceMinutes" type="number" min="5" value="60">
+                    </div>
+                    <div class="control-group">
+                        <label for="refreshIncrementalColumn">Cursor column</label>
+                        <select id="refreshIncrementalColumn">
+                            <option value="">Choose a field</option>
+                            {% for column in columns %}
+                            <option value="{{ column }}">{{ column }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="builder-actions">
+                    <button id="createRefreshSchedule" class="btn btn-primary" {% if dataset_access_role == 'viewer' %}disabled{% endif %}>Create Schedule</button>
+                    <button id="refreshScheduleLibrary" class="btn btn-outline">Refresh Schedule List</button>
+                </div>
+                <div id="refreshJobsList" class="stack-list loading-text">Loading refresh schedules and execution status...</div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
                         <p class="eyebrow">Access Control</p>
                         <h2>Sharing and row security</h2>
                     </div>
@@ -1688,6 +1724,103 @@ async function loadGovernanceSummary() {
     renderGovernanceSummary(data.governance);
 }
 
+function renderRefreshJobs(jobs) {
+    const container = document.getElementById('refreshJobsList');
+    if (!jobs.length) {
+        container.innerHTML = '<div class="recommendation-card"><div class="card-detail">No refresh schedules yet. Create a cadence to keep this dataset materialized and current.</div></div>';
+        return;
+    }
+
+    container.innerHTML = jobs.map((job) => `
+        <div class="recommendation-card">
+            <div>
+                <div class="card-title">${escapeHtml(job.mode || 'full')} refresh every ${job.cadence_minutes} minutes</div>
+                <div class="card-detail">Owner: ${escapeHtml(job.owner || 'workspace')} / Status: ${escapeHtml(job.last_status || 'scheduled')} / Next run: ${escapeHtml(job.next_run_at || 'pending')}</div>
+                <div class="card-detail">Cursor: ${escapeHtml(job.incremental_column || 'n/a')} / Enabled: ${job.enabled ? 'Yes' : 'No'}</div>
+            </div>
+            <div class="recommendation-actions">
+                <button class="btn btn-outline run-refresh-job" data-job-id="${escapeHtml(job.id)}">Run Now</button>
+                <button class="btn btn-outline toggle-refresh-job" data-job-id="${escapeHtml(job.id)}" data-enabled="${job.enabled ? '1' : '0'}">${job.enabled ? 'Pause' : 'Resume'}</button>
+            </div>
+        </div>
+    `).join('');
+
+    document.querySelectorAll('.run-refresh-job').forEach((button) => {
+        button.addEventListener('click', async () => {
+            await runRefreshJobNow(button.dataset.jobId);
+        });
+    });
+    document.querySelectorAll('.toggle-refresh-job').forEach((button) => {
+        button.addEventListener('click', async () => {
+            await toggleRefreshJob(button.dataset.jobId, button.dataset.enabled !== '1');
+        });
+    });
+}
+
+async function loadRefreshJobs() {
+    const datasetId = '{{ dataset_record.id if dataset_record else "" }}';
+    const response = await fetch(`/datasets/${encodeURIComponent(datasetId)}/refresh_jobs`);
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to load refresh schedules');
+    }
+    renderRefreshJobs(data.jobs || []);
+}
+
+async function createDatasetRefreshSchedule() {
+    const datasetId = '{{ dataset_record.id if dataset_record else "" }}';
+    const response = await fetch(`/datasets/${encodeURIComponent(datasetId)}/refresh_jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            _csrf_token: window.getCsrfToken ? window.getCsrfToken() : '',
+            cadence_minutes: parseInt(document.getElementById('refreshCadenceMinutes').value, 10),
+            mode: document.getElementById('refreshMode').value,
+            incremental_column: document.getElementById('refreshIncrementalColumn').value,
+        })
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to create refresh schedule');
+    }
+    await loadRefreshJobs();
+    await loadAnalysisSummary();
+}
+
+async function runRefreshJobNow(jobId) {
+    const response = await fetch(`/refresh_jobs/${encodeURIComponent(jobId)}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            _csrf_token: window.getCsrfToken ? window.getCsrfToken() : '',
+        })
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to run refresh job');
+    }
+    await loadRefreshJobs();
+    await loadAnalysisSummary();
+    await loadGovernanceSummary();
+    showSuccess('Refresh job completed.');
+}
+
+async function toggleRefreshJob(jobId, enabled) {
+    const response = await fetch(`/refresh_jobs/${encodeURIComponent(jobId)}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            _csrf_token: window.getCsrfToken ? window.getCsrfToken() : '',
+            enabled,
+        })
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to update refresh schedule');
+    }
+    await loadRefreshJobs();
+}
+
 async function exportReport(type) {
     const response = await fetch('/export_report', {
         method: 'POST',
@@ -2037,6 +2170,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             showError(error.message);
         }
     });
+    document.getElementById('createRefreshSchedule').addEventListener('click', async () => {
+        try {
+            await createDatasetRefreshSchedule();
+            showSuccess('Refresh schedule created.');
+        } catch (error) {
+            showError(error.message);
+        }
+    });
+    document.getElementById('refreshScheduleLibrary').addEventListener('click', async () => {
+        try {
+            await loadRefreshJobs();
+            showSuccess('Refresh schedules reloaded.');
+        } catch (error) {
+            showError(error.message);
+        }
+    });
     document.getElementById('undoLastStep').addEventListener('click', async () => {
         try {
             await undoToParentDataset();
@@ -2059,6 +2208,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadReportLibrary();
         await loadDataModel();
         await loadMeasures();
+        await loadRefreshJobs();
     } catch (error) {
         showError(error.message);
         document.getElementById('qualityAlerts').textContent = 'Unable to inspect the dataset.';
@@ -2074,6 +2224,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('activityLog').textContent = 'Recent dataset activity could not be loaded.';
         document.getElementById('accessSummary').textContent = 'Dataset access settings could not be loaded.';
         document.getElementById('measureResults').textContent = 'Saved measures could not be loaded.';
+        document.getElementById('refreshJobsList').textContent = 'Refresh schedules could not be loaded.';
     }
 });
 </script>
