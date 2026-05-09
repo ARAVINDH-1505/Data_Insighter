@@ -40,18 +40,23 @@ from workspace_store import (
     create_dashboard_record,
     create_dataset_record,
     create_measure_record,
+    create_query_record,
     create_report_record,
     create_relationship_record,
     ensure_workspace_dirs,
     get_dashboard_record,
     get_dataset_record,
+    get_query_record,
     get_refresh_job_record,
     get_report_record,
     list_all_dashboard_records,
+    list_all_query_records,
     list_all_refresh_job_records,
     list_refresh_job_records,
+    list_query_records,
     update_dataset_record,
     update_dashboard_record,
+    update_query_record,
     update_refresh_job_record,
     update_report_record,
     list_audit_events,
@@ -477,6 +482,65 @@ def get_accessible_report_record(username, report_id):
     return None
 
 
+def list_accessible_query_records(username, dataset_id=None):
+    owned = list_query_records(username, dataset_id=dataset_id)
+    accessible = {}
+    dataset_cache = {}
+
+    for record in owned:
+        hydrated = dict(record)
+        hydrated['access_role'] = artifact_access_role(record, username) or 'owner'
+        accessible[record['id']] = hydrated
+
+    for record in list_all_query_records(dataset_id=dataset_id):
+        if record.get('id') in accessible:
+            continue
+        linked_dataset = None
+        dataset_key = record.get('dataset_id')
+        if dataset_key:
+            linked_dataset = dataset_cache.get(dataset_key)
+            if linked_dataset is None:
+                linked_dataset = get_accessible_dataset_record(username, dataset_key)
+                dataset_cache[dataset_key] = linked_dataset
+        role = artifact_access_role(record, username, linked_dataset)
+        if not role:
+            continue
+        hydrated = dict(record)
+        hydrated['access_role'] = role
+        if linked_dataset and not access_role(record, username):
+            hydrated['metadata'] = {
+                **(record.get('metadata') or {}),
+                'inherited_access_dataset_id': linked_dataset['id'],
+            }
+        accessible[record['id']] = hydrated
+
+    return sorted(accessible.values(), key=lambda item: item.get('updated_at', ''), reverse=True)
+
+
+def get_accessible_query_record(username, query_id):
+    owned = get_query_record(username, query_id)
+    if owned:
+        hydrated = dict(owned)
+        hydrated['access_role'] = artifact_access_role(owned, username) or 'owner'
+        return hydrated
+
+    for record in list_all_query_records():
+        if record.get('id') != query_id:
+            continue
+        linked_dataset = get_accessible_dataset_record(username, record.get('dataset_id'))
+        role = artifact_access_role(record, username, linked_dataset)
+        if role:
+            hydrated = dict(record)
+            hydrated['access_role'] = role
+            if linked_dataset and not access_role(record, username):
+                hydrated['metadata'] = {
+                    **(record.get('metadata') or {}),
+                    'inherited_access_dataset_id': linked_dataset['id'],
+                }
+            return hydrated
+    return None
+
+
 def artifact_lifecycle(record):
     metadata = record.get('metadata') or {}
     lifecycle = metadata.get('lifecycle') or {}
@@ -517,6 +581,8 @@ def resolve_artifact_record(artifact_type, artifact_id, username):
         return get_accessible_dataset_record(username, artifact_id)
     if artifact_type == 'dashboard':
         return get_accessible_dashboard_record(username, artifact_id)
+    if artifact_type == 'query':
+        return get_accessible_query_record(username, artifact_id)
     if artifact_type == 'report':
         return get_accessible_report_record(username, artifact_id)
     return None
@@ -528,6 +594,8 @@ def persist_artifact_update(artifact_type, record, updates):
         return update_dataset_record(owner, record['id'], updates)
     if artifact_type == 'dashboard':
         return update_dashboard_record(owner, record['id'], updates)
+    if artifact_type == 'query':
+        return update_query_record(owner, record['id'], updates)
     if artifact_type == 'report':
         return update_report_record(owner, record['id'], updates)
     raise ValueError('Unsupported artifact type')
@@ -1017,6 +1085,149 @@ def query_workbench():
         return jsonify({'success': True, 'result': result})
     except Exception as e:
         return error_response(str(e), 400)
+
+
+@app.route('/query_workbench/export', methods=['POST'])
+@login_required
+def export_query_workbench():
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    payload = request.get_json(silent=True) or {}
+    sql = payload.get('sql', '')
+    limit = payload.get('limit', 5000)
+
+    try:
+        _, dataset_record, _ = load_active_dataset_frame()
+        result = execute_dataset_sql(dataset_record, session['user'], sql, limit=limit)
+        export_df = pd.DataFrame(result['rows'], columns=result['columns'])
+        export_name = safe_filename_stem((payload.get('name') or 'query_results').strip(), default='query_results')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_file = f'{export_name}_{timestamp}.csv'
+        export_path = os.path.join(app.config['UPLOAD_FOLDER'], export_file)
+        if not is_path_within_directory(app.config['UPLOAD_FOLDER'], export_path):
+            return error_response('Unsafe export path generated.', 400)
+        export_df.to_csv(export_path, index=False)
+        return send_file(export_path, as_attachment=True, download_name=export_file, mimetype='text/csv')
+    except Exception as e:
+        return error_response(str(e), 400)
+
+
+@app.route('/query_library')
+@login_required
+def query_library():
+    dataset_id = request.args.get('dataset_id') or session.get('current_dataset_id')
+    queries = list_accessible_query_records(session['user'], dataset_id=dataset_id)
+    return jsonify({
+        'success': True,
+        'queries': [
+            {
+                'id': query['id'],
+                'name': query['name'],
+                'dataset_id': query.get('dataset_id'),
+                'owner': query.get('owner'),
+                'access_role': query.get('access_role') or artifact_access_role(query, session['user']) or 'viewer',
+                'created_at': query['created_at'],
+                'updated_at': query['updated_at'],
+                'shared_count': len(shared_entries(query)),
+                'lifecycle': artifact_lifecycle(query),
+                'preview_sql': (query.get('sql') or '')[:160],
+            }
+            for query in queries
+        ],
+    })
+
+
+@app.route('/queries/<query_id>')
+@login_required
+def get_query(query_id):
+    record = get_accessible_query_record(session['user'], query_id)
+    if not record:
+        return error_response('Saved query not found.', 404)
+    return jsonify({'success': True, 'query': record})
+
+
+@app.route('/queries/save', methods=['POST'])
+@login_required
+def save_query_snapshot():
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get('name') or '').strip()
+    sql = (payload.get('sql') or '').strip()
+    if not name:
+        return error_response('Give this query a name before saving it.', 400)
+    if not sql:
+        return error_response('Write a SQL query before saving it.', 400)
+
+    try:
+        _, dataset_record, _ = load_active_dataset_frame()
+        result = execute_dataset_sql(dataset_record, session['user'], sql, limit=50)
+        record = create_query_record(
+            session['user'],
+            name=name,
+            dataset_id=dataset_record['id'],
+            sql=sql,
+            metadata={
+                'shared_with': shared_entries(dataset_record),
+                'source_dataset_id': dataset_record['id'],
+                'source_dataset_owner': dataset_record.get('owner'),
+                'lifecycle': artifact_lifecycle(dataset_record),
+                'last_run_preview': {
+                    'row_count': result['row_count'],
+                    'returned_rows': result['returned_rows'],
+                    'columns': result['columns'],
+                },
+            },
+        )
+        record_audit_event(
+            'query_saved',
+            artifact_type='query',
+            dataset_id=dataset_record['id'],
+            artifact_id=record['id'],
+            details={'name': name},
+        )
+        return jsonify({'success': True, 'query': record})
+    except Exception as e:
+        return error_response(str(e), 400)
+
+
+@app.route('/queries/<query_id>/share', methods=['POST'])
+@login_required
+def share_query_record(query_id):
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    record = get_accessible_query_record(session['user'], query_id)
+    if not record:
+        return error_response('Saved query not found.', 404)
+    if not can_edit_record(record, session['user']):
+        return error_response('You do not have permission to share this saved query.', 403)
+
+    payload = request.get_json(silent=True) or {}
+    target_user = (payload.get('user') or '').strip()
+    role = (payload.get('role') or 'viewer').strip().lower()
+    users = _load_users()
+
+    if not target_user or target_user not in users:
+        return error_response('Choose a valid teammate to share this query with.', 400)
+    if target_user == session['user']:
+        return error_response('This query is already available to you.', 400)
+
+    updated_record = update_query_record(
+        record['owner'],
+        record['id'],
+        {'metadata': with_shared_user(record, target_user, role)},
+    )
+    record_audit_event(
+        'query_shared',
+        artifact_type='query',
+        dataset_id=updated_record.get('dataset_id'),
+        artifact_id=updated_record['id'],
+        details={'target_user': target_user, 'role': role},
+    )
+    return jsonify({'success': True, 'query': updated_record})
 
 
 @app.route('/artifacts/<artifact_type>/<artifact_id>/lifecycle', methods=['POST'])

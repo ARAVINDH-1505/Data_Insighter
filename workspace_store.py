@@ -12,6 +12,7 @@ BASE_DIR = os.path.join(os.path.dirname(__file__), 'workspace_data')
 DATASETS_DIR = os.path.join(BASE_DIR, 'datasets')
 DASHBOARDS_DIR = os.path.join(BASE_DIR, 'dashboards')
 REPORTS_DIR = os.path.join(BASE_DIR, 'reports')
+QUERIES_DIR = os.path.join(BASE_DIR, 'queries')
 RELATIONSHIPS_DIR = os.path.join(BASE_DIR, 'relationships')
 MEASURES_DIR = os.path.join(BASE_DIR, 'measures')
 AUDIT_DIR = os.path.join(BASE_DIR, 'audit')
@@ -46,6 +47,16 @@ TABLE_DEFINITIONS = {
     ''',
     'reports': '''
         CREATE TABLE IF NOT EXISTS reports (
+            id TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            updated_at TEXT,
+            dataset_id TEXT,
+            artifact_id TEXT,
+            payload TEXT NOT NULL
+        )
+    ''',
+    'queries': '''
+        CREATE TABLE IF NOT EXISTS queries (
             id TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
             updated_at TEXT,
@@ -102,6 +113,8 @@ TABLE_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_dashboards_dataset ON dashboards(dataset_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_reports_owner_updated ON reports(owner, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_reports_dataset ON reports(dataset_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_queries_owner_updated ON queries(owner, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_queries_dataset ON queries(dataset_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_relationships_owner_updated ON relationships(owner, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_measures_owner_updated ON measures(owner, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_measures_dataset ON measures(dataset_id, updated_at DESC)",
@@ -116,6 +129,7 @@ def ensure_workspace_dirs() -> None:
     os.makedirs(DATASETS_DIR, exist_ok=True)
     os.makedirs(DASHBOARDS_DIR, exist_ok=True)
     os.makedirs(REPORTS_DIR, exist_ok=True)
+    os.makedirs(QUERIES_DIR, exist_ok=True)
     os.makedirs(RELATIONSHIPS_DIR, exist_ok=True)
     os.makedirs(MEASURES_DIR, exist_ok=True)
     os.makedirs(AUDIT_DIR, exist_ok=True)
@@ -241,6 +255,23 @@ def _report_path(username: str, report_id: str) -> str:
 
 def _list_user_report_files(username: str) -> List[str]:
     user_dir = os.path.join(REPORTS_DIR, _safe_user_segment(username))
+    if not os.path.exists(user_dir):
+        return []
+    return [
+        os.path.join(user_dir, filename)
+        for filename in os.listdir(user_dir)
+        if filename.endswith('.json')
+    ]
+
+
+def _query_path(username: str, query_id: str) -> str:
+    user_dir = os.path.join(QUERIES_DIR, _safe_user_segment(username))
+    os.makedirs(user_dir, exist_ok=True)
+    return os.path.join(user_dir, f'{query_id}.json')
+
+
+def _list_user_query_files(username: str) -> List[str]:
+    user_dir = os.path.join(QUERIES_DIR, _safe_user_segment(username))
     if not os.path.exists(user_dir):
         return []
     return [
@@ -429,6 +460,7 @@ def _migrate_legacy_json_records(connection: sqlite3.Connection) -> None:
         'datasets': DATASETS_DIR,
         'dashboards': DASHBOARDS_DIR,
         'reports': REPORTS_DIR,
+        'queries': QUERIES_DIR,
         'relationships': RELATIONSHIPS_DIR,
         'measures': MEASURES_DIR,
         'audit_events': AUDIT_DIR,
@@ -453,6 +485,15 @@ def _migrate_legacy_json_records(connection: sqlite3.Connection) -> None:
                 if filename.endswith('.json')
             ]
         ] if os.path.exists(REPORTS_DIR) else [],
+        'queries': [
+            path
+            for root, _, filenames in os.walk(QUERIES_DIR)
+            for path in [
+                os.path.join(root, filename)
+                for filename in filenames
+                if filename.endswith('.json')
+            ]
+        ] if os.path.exists(QUERIES_DIR) else [],
         'relationships': [
             path
             for root, _, filenames in os.walk(RELATIONSHIPS_DIR)
@@ -648,6 +689,50 @@ def list_report_records(username: str, dataset_id: Optional[str] = None) -> List
 
 def list_all_report_records(dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
     return _list_records('reports', dataset_id=dataset_id)
+
+
+def create_query_record(
+    username: str,
+    name: str,
+    dataset_id: Optional[str],
+    sql: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    ensure_workspace_dirs()
+    query_id = f"qry_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
+    now = datetime.utcnow().isoformat() + 'Z'
+    record = {
+        'id': query_id,
+        'owner': username,
+        'name': name,
+        'dataset_id': dataset_id,
+        'sql': sql,
+        'created_at': now,
+        'updated_at': now,
+        'metadata': metadata or {},
+    }
+    return _upsert_record('queries', username, record)
+
+
+def update_query_record(username: str, query_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    record = get_query_record(username, query_id)
+    if not record:
+        return None
+    record.update(updates)
+    record['updated_at'] = datetime.utcnow().isoformat() + 'Z'
+    return _upsert_record('queries', username, record)
+
+
+def get_query_record(username: str, query_id: str) -> Optional[Dict[str, Any]]:
+    return _fetch_record('queries', username, query_id)
+
+
+def list_query_records(username: str, dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    return _list_records('queries', owner=username, dataset_id=dataset_id)
+
+
+def list_all_query_records(dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    return _list_records('queries', dataset_id=dataset_id)
 
 
 def create_relationship_record(

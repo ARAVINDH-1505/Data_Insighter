@@ -368,6 +368,8 @@
                         <h2>Warehouse-style query access</h2>
                     </div>
                     <div class="recommendation-actions">
+                        <button id="saveSqlQuery" class="btn btn-outline">Save Query</button>
+                        <button id="exportSqlQueryCsv" class="btn btn-outline">Export CSV</button>
                         <button id="runSqlWorkbench" class="btn btn-primary">Run SQL</button>
                     </div>
                 </div>
@@ -378,6 +380,7 @@
                 </div>
                 <div id="sqlWorkbenchStatus" class="prep-status">Ready to run SQL against the current dataset materialization.</div>
                 <div id="sqlWorkbenchResults" class="report-preview loading-text">Query results will appear here.</div>
+                <div id="sqlQueryLibrary" class="stack-list loading-text" style="margin-top:18px;">Loading saved SQL queries...</div>
             </div>
 
             <div class="panel">
@@ -1966,6 +1969,103 @@ async function runSqlWorkbench() {
     renderSqlWorkbenchResult(data.result);
 }
 
+function renderSqlQueryLibrary(queries) {
+    const container = document.getElementById('sqlQueryLibrary');
+    if (!queries.length) {
+        container.innerHTML = '<div class="recommendation-card"><div class="card-detail">No saved SQL queries yet. Save the workbench text to build a reusable query library for this dataset.</div></div>';
+        return;
+    }
+
+    container.innerHTML = queries.map((query) => `
+        <div class="recommendation-card">
+            <div>
+                <div class="card-title">${escapeHtml(query.name)}</div>
+                <div class="card-detail">Owner: ${escapeHtml(query.owner || 'workspace')} / Access: ${escapeHtml(query.access_role || 'viewer')} / Shared with ${query.shared_count || 0} teammates</div>
+                <div class="card-detail">Lifecycle: ${escapeHtml(query.lifecycle?.certification || 'draft')} / ${escapeHtml(query.lifecycle?.stage || 'dev')}</div>
+                <div class="card-detail"><code>${escapeHtml(query.preview_sql || '')}</code></div>
+            </div>
+            <div class="recommendation-actions">
+                <button class="btn btn-outline open-saved-query" data-query-id="${escapeHtml(query.id)}">Open Query</button>
+            </div>
+        </div>
+    `).join('');
+
+    document.querySelectorAll('.open-saved-query').forEach((button) => {
+        button.addEventListener('click', async () => {
+            await openSavedQuery(button.dataset.queryId);
+        });
+    });
+}
+
+async function loadSqlQueryLibrary() {
+    const response = await fetch('/query_library');
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to load saved SQL queries');
+    }
+    renderSqlQueryLibrary(data.queries || []);
+}
+
+async function openSavedQuery(queryId) {
+    const response = await fetch(`/queries/${encodeURIComponent(queryId)}`);
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to open the saved query');
+    }
+    document.getElementById('sqlWorkbench').value = data.query.sql || '';
+    await runSqlWorkbench();
+}
+
+async function saveSqlQuery() {
+    const sql = document.getElementById('sqlWorkbench').value.trim();
+    const defaultName = `Dataset query ${new Date().toLocaleString()}`;
+    const name = window.prompt('Name this saved SQL query:', defaultName);
+    if (!name) {
+        return;
+    }
+    const response = await fetch('/queries/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            _csrf_token: window.getCsrfToken ? window.getCsrfToken() : '',
+            name,
+            sql,
+        })
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Failed to save SQL query');
+    }
+    await loadSqlQueryLibrary();
+}
+
+async function exportSqlQueryCsv() {
+    const sql = document.getElementById('sqlWorkbench').value.trim();
+    const response = await fetch('/query_workbench/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            _csrf_token: window.getCsrfToken ? window.getCsrfToken() : '',
+            name: 'query_results',
+            sql,
+            limit: 5000,
+        })
+    });
+    if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error || 'Failed to export query results');
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'query_results.csv';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+}
+
 async function exportReport(type) {
     const response = await fetch('/export_report', {
         method: 'POST',
@@ -2339,6 +2439,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             showError(error.message);
         }
     });
+    document.getElementById('saveSqlQuery').addEventListener('click', async () => {
+        try {
+            await saveSqlQuery();
+            showSuccess('SQL query saved to the workspace library.');
+        } catch (error) {
+            showError(error.message);
+        }
+    });
+    document.getElementById('exportSqlQueryCsv').addEventListener('click', async () => {
+        try {
+            await exportSqlQueryCsv();
+        } catch (error) {
+            showError(error.message);
+        }
+    });
     document.getElementById('updateDatasetLifecycle').addEventListener('click', async () => {
         try {
             await updateDatasetLifecycle();
@@ -2371,6 +2486,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadMeasures();
         await loadRefreshJobs();
         await runSqlWorkbench();
+        await loadSqlQueryLibrary();
     } catch (error) {
         showError(error.message);
         document.getElementById('qualityAlerts').textContent = 'Unable to inspect the dataset.';
@@ -2388,6 +2504,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('measureResults').textContent = 'Saved measures could not be loaded.';
         document.getElementById('refreshJobsList').textContent = 'Refresh schedules could not be loaded.';
         document.getElementById('sqlWorkbenchResults').textContent = 'SQL workbench results could not be loaded.';
+        document.getElementById('sqlQueryLibrary').textContent = 'Saved SQL queries could not be loaded.';
         document.getElementById('lifecycleSummary').textContent = 'Lifecycle history could not be loaded.';
     }
 });
