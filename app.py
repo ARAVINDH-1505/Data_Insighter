@@ -18,6 +18,7 @@ from access_control_service import (
 from data_processor import DataProcessor
 from dataset_runtime import load_accessible_dataframe
 from visualization_generator import VisualizationGenerator
+from dashboard_autocomposer import compose_starter_dashboard
 import numpy as np
 from datetime import datetime
 import time
@@ -2253,7 +2254,7 @@ def dashboard_library():
                 'access_role': dashboard.get('access_role') or artifact_access_role(dashboard, session['user']) or 'viewer',
                 'created_at': dashboard['created_at'],
                 'updated_at': dashboard['updated_at'],
-                'chart_count': len(dashboard.get('dashboard_viz', [])),
+                'chart_count': len([item for item in dashboard.get('dashboard_viz', []) if item.get('type') != 'text']),
                 'shared_count': len(shared_entries(dashboard)),
                 'lifecycle': artifact_lifecycle(dashboard),
             }
@@ -2271,10 +2272,11 @@ def save_dashboard_record():
     name = (payload.get('name') or '').strip()
     dashboard_viz = payload.get('dashboard_viz') or []
     dashboard_state = payload.get('dashboard_state') or {}
+    chart_count = len([item for item in dashboard_viz if item.get('type') != 'text'])
 
     if not name:
         return error_response('Give this dashboard a name before saving.', 400)
-    if not dashboard_viz:
+    if not dashboard_viz or chart_count == 0:
         return error_response('Add at least one chart before saving the dashboard.', 400)
 
     record = create_dashboard_record(
@@ -2299,7 +2301,7 @@ def save_dashboard_record():
         artifact_type='dashboard',
         dataset_id=session.get('current_dataset_id'),
         artifact_id=record['id'],
-        details={'name': name, 'chart_count': len(dashboard_viz)},
+        details={'name': name, 'chart_count': chart_count, 'note_count': len(dashboard_viz) - chart_count},
     )
     return jsonify({'success': True, 'dashboard': record})
 
@@ -2355,32 +2357,22 @@ def starter_dashboard():
         return error_response('Invalid request token', 400)
 
     try:
-        frame, _, _ = load_active_dataset_frame()
+        frame, dataset_record, _ = load_active_dataset_frame()
         processor = DataProcessor(dataframe=frame)
         summary = processor.get_analysis_summary()
-        recommendations = summary.get('recommended_visualizations', [])[:4]
-        if not recommendations:
+        composed = compose_starter_dashboard(
+            summary,
+            dataset_name=dataset_record.get('metadata', {}).get('display_name') or dataset_record.get('source_name'),
+        )
+        dashboard_viz = composed.get('dashboard_viz', [])
+        if not dashboard_viz:
             return error_response('No starter dashboard recommendations are available for this dataset yet.', 400)
 
-        starter_cards = []
-        positions = [
-            {'x': 0, 'y': 0},
-            {'x': 430, 'y': 0},
-            {'x': 0, 'y': 340},
-            {'x': 430, 'y': 340},
-        ]
-        for idx, chart in enumerate(recommendations):
-            starter_cards.append({
-                'id': int(time.time()) + idx,
-                'title': chart['title'],
-                'type': chart['type'],
-                'columns': chart['columns'],
-                'samplePercentage': chart.get('sample_percentage', 100),
-                'position': positions[idx] if idx < len(positions) else {'x': 0, 'y': idx * 320},
-                'size': {'width': 400, 'height': 300},
-            })
-
-        return jsonify({'success': True, 'dashboard_viz': starter_cards})
+        return jsonify({
+            'success': True,
+            'layout_name': composed.get('layout_name'),
+            'dashboard_viz': dashboard_viz,
+        })
     except Exception as e:
         return error_response(str(e), 400)
 

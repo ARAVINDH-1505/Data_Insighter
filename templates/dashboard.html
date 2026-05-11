@@ -446,6 +446,18 @@
     color: var(--text-color);
 }
 
+.note-remove {
+    background: none;
+    border: none;
+    color: var(--text-light);
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+
+.note-remove:hover {
+    color: var(--error-color);
+}
+
 .header-buttons {
     display: flex;
     gap: 10px;
@@ -612,6 +624,14 @@ document.addEventListener('DOMContentLoaded', function() {
             type: viz?.type || 'bar',
             columns: Array.isArray(viz?.columns) ? viz.columns : [],
             samplePercentage: viz?.samplePercentage ?? 100,
+            content: viz?.content || '',
+            style: {
+                fontFamily: viz?.style?.fontFamily || "'Plus Jakarta Sans', 'Segoe UI', sans-serif",
+                fontSize: viz?.style?.fontSize || '15px',
+                fontWeight: viz?.style?.fontWeight || '500',
+                color: viz?.style?.color ?? '',
+                backgroundColor: viz?.style?.backgroundColor || 'transparent',
+            },
             size: {
                 width: Math.max(260, Number(viz?.size?.width) || 420),
                 height: Math.max(240, Number(viz?.size?.height) || 320),
@@ -784,6 +804,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Create a visualization block
     function createVizBlock(viz) {
         const normalizedViz = normalizeViz(viz, 0);
+        if (normalizedViz.type === 'text') {
+            createTextVizBlock(normalizedViz);
+            return;
+        }
         const block = document.createElement('div');
         block.className = 'viz-block';
         block.id = `viz-${normalizedViz.id}`;
@@ -817,6 +841,57 @@ document.addEventListener('DOMContentLoaded', function() {
         block.querySelector('.viz-remove').addEventListener('click', () => {
             removeVizBlock(normalizedViz.id);
         });
+        renderDashboardEmptyState();
+    }
+
+    function createTextVizBlock(viz) {
+        const textBox = document.createElement('div');
+        textBox.className = 'text-box';
+        textBox.id = `viz-${viz.id}`;
+        textBox.style.left = `${viz.position.x}px`;
+        textBox.style.top = `${viz.position.y}px`;
+        textBox.style.width = `${viz.size.width}px`;
+        textBox.style.height = `${viz.size.height}px`;
+        textBox.style.position = 'absolute';
+        textBox.style.zIndex = 10;
+
+        const header = document.createElement('div');
+        header.className = 'text-box-header';
+        header.innerHTML = `
+            <strong>${viz.title || 'Narrative note'}</strong>
+            <button type="button" class="note-remove" aria-label="Remove note">&times;</button>
+        `;
+
+        const content = document.createElement('div');
+        content.className = 'text-box-content';
+        content.contentEditable = true;
+        content.spellcheck = true;
+        content.textContent = viz.content || 'Add commentary, assumptions, or next-step guidance here.';
+        content.style.fontFamily = viz.style.fontFamily;
+        content.style.fontSize = viz.style.fontSize;
+        content.style.fontWeight = viz.style.fontWeight;
+        content.style.color = viz.style.color || currentThemeTextColorHex();
+        content.style.backgroundColor = viz.style.backgroundColor || 'transparent';
+        content.dataset.manualColor = viz.style.color ? 'true' : 'false';
+
+        textBox.appendChild(header);
+        textBox.appendChild(content);
+        dashboardArea.appendChild(textBox);
+
+        makeTextBoxResizable(textBox);
+        makeTextBoxDraggable(textBox);
+
+        header.querySelector('.note-remove').addEventListener('click', () => {
+            removeVizBlock(viz.id);
+        });
+
+        content.addEventListener('input', () => {
+            updateVizText(viz.id, { content: content.textContent || '' });
+        });
+        content.addEventListener('blur', () => {
+            updateVizText(viz.id, { content: content.textContent || '' });
+        });
+
         renderDashboardEmptyState();
     }
 
@@ -974,6 +1049,68 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
+    function makeTextBoxResizable(element) {
+        interact(element)
+            .resizable({
+                edges: { left: true, right: true, bottom: true, top: true },
+                modifiers: [
+                    interact.modifiers.restrictSize({
+                        min: { width: 240, height: 140 },
+                        max: { width: 900, height: 520 }
+                    }),
+                    interact.modifiers.restrictEdges({
+                        outer: '#dashboardArea',
+                        endOnly: true
+                    })
+                ],
+                listeners: {
+                    move: function(event) {
+                        const target = event.target;
+                        let x = parseFloat(target.style.left) || 0;
+                        let y = parseFloat(target.style.top) || 0;
+                        x += event.deltaRect.left;
+                        y += event.deltaRect.top;
+                        target.style.left = `${Math.max(0, x)}px`;
+                        target.style.top = `${Math.max(0, y)}px`;
+                        target.style.width = `${event.rect.width}px`;
+                        target.style.height = `${event.rect.height}px`;
+                        const vizId = target.id.split('-')[1];
+                        updateVizPosition(vizId, Math.max(0, x), Math.max(0, y));
+                        updateVizSize(vizId, event.rect.width, event.rect.height);
+                    }
+                }
+            });
+    }
+
+    function makeTextBoxDraggable(element) {
+        interact(element)
+            .draggable({
+                allowFrom: '.text-box-header',
+                modifiers: [
+                    interact.modifiers.restrictRect({
+                        restriction: '#dashboardArea',
+                        endOnly: true
+                    })
+                ],
+                listeners: {
+                    move: function(event) {
+                        const target = event.target;
+                        const x = (parseFloat(target.style.left) || 0) + event.dx;
+                        const y = (parseFloat(target.style.top) || 0) + event.dy;
+                        const dashboardArea = document.getElementById('dashboardArea');
+                        const maxX = dashboardArea.clientWidth - target.offsetWidth;
+                        const maxY = dashboardArea.clientHeight - target.offsetHeight;
+                        const boundedX = Math.min(Math.max(0, x), maxX);
+                        const boundedY = Math.min(Math.max(0, y), maxY);
+                        target.style.left = `${boundedX}px`;
+                        target.style.top = `${boundedY}px`;
+                        const vizId = target.id.split('-')[1];
+                        updateVizPosition(vizId, boundedX, boundedY);
+                    }
+                }
+            });
+    }
+
     // Update visualization size in localStorage
     function updateVizSize(id, width, height) {
         const dashboardViz = getStoredDashboardViz();
@@ -992,6 +1129,16 @@ document.addEventListener('DOMContentLoaded', function() {
             viz.position = { x, y };
             persistDashboardViz(dashboardViz);
         }
+    }
+
+    function updateVizText(id, updates) {
+        const dashboardViz = getStoredDashboardViz();
+        const viz = dashboardViz.find(v => v.id === parseInt(id));
+        if (!viz) {
+            return;
+        }
+        Object.assign(viz, updates);
+        persistDashboardViz(dashboardViz);
     }
 
     // Remove a visualization block
@@ -1100,232 +1247,27 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Text box functionality
-    let textBoxCounter = 0;
-
     document.getElementById('addText').addEventListener('click', function() {
-        const dashboardArea = document.getElementById('dashboardArea');
-        const textBox = document.createElement('div');
-        textBox.className = 'text-box';
-        textBox.id = `text-box-${textBoxCounter++}`;
-        textBox.style.left = '20px';
-        textBox.style.top = '20px';
-        textBox.style.position = 'absolute';
-        textBox.style.zIndex = 10;
-        
-        const header = document.createElement('div');
-        header.className = 'text-box-header';
-        
-        const controls = document.createElement('div');
-        controls.className = 'text-box-controls';
-        
-        // Font family selector
-        const fontSelect = document.createElement('select');
-        fontSelect.innerHTML = `
-            <option value="Arial">Arial</option>
-            <option value="Times New Roman">Times New Roman</option>
-            <option value="Courier New">Courier New</option>
-            <option value="Georgia">Georgia</option>
-        `;
-        
-        // Font size selector
-        const sizeSelect = document.createElement('select');
-        sizeSelect.innerHTML = `
-            <option value="12px">12px</option>
-            <option value="14px">14px</option>
-            <option value="16px">16px</option>
-            <option value="18px">18px</option>
-            <option value="20px">20px</option>
-            <option value="24px">24px</option>
-        `;
-        
-        // Color picker
-        const colorInput = document.createElement('input');
-        colorInput.type = 'color';
-        colorInput.value = currentThemeTextColorHex();
-        
-        // Remove button
-        const removeButton = document.createElement('button');
-        removeButton.innerHTML = '&times;';
-        removeButton.style.background = 'none';
-        removeButton.style.border = 'none';
-        removeButton.style.cursor = 'pointer';
-        removeButton.style.fontSize = '20px';
-        removeButton.style.color = themeToken('--error-color', '#dc2626');
-        
-        const content = document.createElement('div');
-        content.className = 'text-box-content';
-        content.contentEditable = true;
-        content.innerHTML = 'Double click to edit text';
-        content.style.fontFamily = fontSelect.value;
-        content.style.fontSize = sizeSelect.value;
-        content.style.color = colorInput.value;
-        content.dataset.manualColor = 'false';
-        
-        controls.appendChild(fontSelect);
-        controls.appendChild(sizeSelect);
-        controls.appendChild(colorInput);
-        header.appendChild(controls);
-        header.appendChild(removeButton);
-        textBox.appendChild(header);
-        textBox.appendChild(content);
-        
-        // Make text box draggable and resizable within dashboard area
-        interact(textBox)
-            .draggable({
-                allowFrom: '.text-box-header',
-                inertia: true,
-                modifiers: [
-                    interact.modifiers.restrictRect({
-                        restriction: dashboardArea,
-                        endOnly: true
-                    })
-                ],
-                autoScroll: true,
-                listeners: {
-                    move: dragMoveListener
-                }
-            })
-            .resizable({
-                edges: { left: true, right: true, bottom: true, top: true },
-                modifiers: [
-                    interact.modifiers.restrictEdges({
-                        outer: dashboardArea,
-                        endOnly: true
-                    })
-                ],
-                listeners: {
-                    move: function (event) {
-                        let { x, y } = event.target.dataset;
-                        x = (parseFloat(x) || 0) + event.deltaRect.left;
-                        y = (parseFloat(y) || 0) + event.deltaRect.top;
-                        Object.assign(event.target.style, {
-                            width: `${event.rect.width}px`,
-                            height: `${event.rect.height}px`,
-                            transform: `translate(${x}px, ${y}px)`
-                        });
-                        Object.assign(event.target.dataset, { x, y });
-                    }
-                }
-            });
-        
-        // Event listeners for text controls
-        fontSelect.addEventListener('change', function() {
-            content.style.fontFamily = this.value;
-        });
-        
-        sizeSelect.addEventListener('change', function() {
-            content.style.fontSize = this.value;
-        });
-        
-        colorInput.addEventListener('input', function() {
-            content.style.color = this.value;
-            content.dataset.manualColor = 'true';
-        });
-        
-        removeButton.addEventListener('click', function() {
-            textBox.remove();
-            renderDashboardEmptyState();
-        });
-        
-        // Hide controls and border on Enter, show on double click
-        content.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                content.contentEditable = false;
-                controls.style.display = 'none';
-                header.style.borderBottom = 'none';
-                textBox.style.border = 'none';
-                textBox.style.boxShadow = 'none';
-                textBox.style.resize = 'none';
-                textBox.style.pointerEvents = 'auto';
-                // Hide remove button
-                removeButton.style.display = 'none';
-                // Remove scroll and line
-                textBox.style.overflow = 'visible';
-                textBox.style.height = 'auto';
-                content.style.overflow = 'visible';
-                content.style.height = 'auto';
-                content.style.outline = 'none';
-                content.style.border = 'none';
-                content.style.padding = '0';
-                // Only disable resizing, keep dragging enabled
-                interact(textBox).unset();
-                interact(textBox)
-                    .draggable({
-                        allowFrom: '.text-box-header, .text-box-content',
-                        inertia: true,
-                        modifiers: [
-                            interact.modifiers.restrictRect({
-                                restriction: dashboardArea,
-                                endOnly: true
-                            })
-                        ],
-                        autoScroll: true,
-                        listeners: {
-                            move: dragMoveListener
-                        }
-                    });
-            }
-        });
-        // Double click to edit again
-        content.addEventListener('dblclick', function() {
-            content.contentEditable = true;
-            controls.style.display = 'flex';
-            header.style.borderBottom = `1px solid ${themeToken('--border-color', 'rgba(15, 23, 42, 0.08)')}`;
-            textBox.style.border = `1px solid ${themeToken('--border-color', 'rgba(15, 23, 42, 0.08)')}`;
-            textBox.style.boxShadow = themeToken('--soft-shadow', '0 16px 34px rgba(15, 23, 42, 0.08)');
-            textBox.style.resize = 'both';
-            // Show remove button again
-            removeButton.style.display = '';
-            // Restore scroll and line
-            textBox.style.overflow = 'auto';
-            content.style.overflow = 'auto';
-            content.style.height = '';
-            content.style.outline = '';
-            content.style.border = 'none';
-            content.style.padding = '10px';
-            // Re-enable draggable and resizable
-            interact(textBox)
-                .draggable({
-                    allowFrom: '.text-box-header',
-                    inertia: true,
-                    modifiers: [
-                        interact.modifiers.restrictRect({
-                            restriction: dashboardArea,
-                            endOnly: true
-                        })
-                    ],
-                    autoScroll: true,
-                    listeners: {
-                        move: dragMoveListener
-                    }
-                })
-                .resizable({
-                    edges: { left: true, right: true, bottom: true, top: true },
-                    modifiers: [
-                        interact.modifiers.restrictEdges({
-                            outer: dashboardArea,
-                            endOnly: true
-                        })
-                    ],
-                    listeners: {
-                        move: function (event) {
-                            let { x, y } = event.target.dataset;
-                            x = (parseFloat(x) || 0) + event.deltaRect.left;
-                            y = (parseFloat(y) || 0) + event.deltaRect.top;
-                            Object.assign(event.target.style, {
-                                width: `${event.rect.width}px`,
-                                height: `${event.rect.height}px`,
-                                transform: `translate(${x}px, ${y}px)`
-                            });
-                            Object.assign(event.target.dataset, { x, y });
-                        }
-                    }
-                });
-        });
-        
-        dashboardArea.appendChild(textBox);
-        renderDashboardEmptyState();
+        const dashboardViz = getStoredDashboardViz();
+        const nextViz = normalizeViz({
+            id: Date.now(),
+            title: 'Narrative note',
+            type: 'text',
+            content: 'Double-click or type here to capture commentary, assumptions, or next actions.',
+            position: { x: 40, y: 40 },
+            size: { width: 360, height: 180 },
+            style: {
+                fontFamily: "'Plus Jakarta Sans', 'Segoe UI', sans-serif",
+                fontSize: '15px',
+                fontWeight: '500',
+                color: currentThemeTextColorHex(),
+                backgroundColor: 'transparent',
+            },
+        }, dashboardViz.length);
+        dashboardViz.push(nextViz);
+        persistDashboardViz(dashboardViz);
+        createTextVizBlock(nextViz);
+        showSuccess('Narrative note added to the dashboard.');
     });
 
     function dragMoveListener(event) {
@@ -1342,13 +1284,14 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('saveWorkspaceDashboard').addEventListener('click', async function() {
         const dashboardViz = getStoredDashboardViz();
         const dashboardName = dashboardNameInput.value.trim();
+        const chartCount = dashboardViz.filter((viz) => viz.type !== 'text').length;
 
         if (!dashboardName) {
             showError('Name the dashboard before saving it to the workspace.');
             return;
         }
 
-        if (dashboardViz.length === 0) {
+        if (chartCount === 0) {
             showError('Add at least one chart before saving this dashboard.');
             return;
         }
@@ -1428,8 +1371,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('saveDashboard').addEventListener('click', async function() {
         const dashboardViz = getStoredDashboardViz();
+        const chartCount = dashboardViz.filter((viz) => viz.type !== 'text').length;
         
-        if (dashboardViz.length === 0) {
+        if (chartCount === 0) {
             showError('Please add at least one visualization to the dashboard before saving.');
             return;
         }
