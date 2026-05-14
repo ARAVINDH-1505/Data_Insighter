@@ -32,7 +32,8 @@ Backend modules:
 - `measure_service.py` - reusable measure calculations
 - `transform_service.py` - dataset transformation operations
 - `visualization_generator.py` - Plotly chart generation and export
-- `workspace_store.py` - JSON-backed persistence for datasets, dashboards, relationships, measures, and audit events
+- `workspace_store.py` - SQLite-backed persistence for datasets, dashboards, relationships, measures, refresh jobs, and audit events
+- `auth_store.py` - SQLite-backed account storage and legacy user migration
 - `report_service.py` - executive summary report generation
 - `file_utils.py` - multi-format ingestion with encoding handling
 
@@ -46,8 +47,9 @@ Frontend surface:
 
 - Uploaded files are stored under `uploads/`
 - Sample files live under `sample_datasets/`
-- Workspace records are stored as JSON files under `workspace_data/`
-- The app uses Flask session cookies plus server-side workspace files
+- Workspace metadata is stored in SQLite under `workspace_data/`
+- Account metadata is stored in SQLite and legacy `users.json` data is migrated on demand
+- The app uses Flask session cookies plus server-side workspace storage
 - If `SECRET_KEY` is not set, the app creates a stable local fallback key in `.local_secret_key`
 
 ## Supported file types
@@ -86,6 +88,7 @@ PowerShell helpers:
 - `scripts/open_local_browser.ps1`
 - `scripts/tail_local_logs.ps1`
 - `scripts/verify_local_ui.ps1`
+- `scripts/start_refresh_worker.ps1`
 
 If the embedded browser blocks `localhost` or `127.0.0.1`, use the desktop-browser fallback helpers instead:
 
@@ -94,7 +97,13 @@ If the embedded browser blocks `localhost` or `127.0.0.1`, use the desktop-brows
 .\scripts\verify_local_ui.ps1
 ```
 
-`verify_local_ui.ps1` captures real browser screenshots and DOM dumps into `output\ui_verification\...` using a clean Chrome/Edge profile with extensions disabled, which avoids `ERR_BLOCKED_BY_CLIENT` cases caused by browser-side blockers.
+`verify_local_ui.ps1` captures real browser screenshots and DOM dumps into `output\ui_verification\...` using a clean Chrome/Edge profile with extensions disabled, which avoids `ERR_BLOCKED_BY_CLIENT` cases caused by browser-side blockers. You can also pass `-Username` and `-Password` to verify authenticated routes and generate both `verification_summary.json` and `verification_report.md`.
+
+If you want refresh schedules to run outside the web process, start the durable worker helper:
+
+```powershell
+.\scripts\start_refresh_worker.ps1
+```
 
 ## Tests
 

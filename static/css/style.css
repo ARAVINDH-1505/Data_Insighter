@@ -751,11 +751,11 @@ th {
 }
 
 .auth-shell {
-    min-height: calc(100vh - 18rem);
+    min-height: calc(100vh - 10rem);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    padding: 2rem 1rem;
+    padding: clamp(1rem, 3vw, 2.25rem) 1rem 2rem;
 }
 
 .auth-shell-split {
@@ -814,6 +814,7 @@ th {
 .auth-card {
     width: min(100%, 460px);
     padding: 2rem;
+    align-self: start;
 }
 
 .auth-shell-split .auth-card {

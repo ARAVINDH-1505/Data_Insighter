@@ -1,9 +1,12 @@
 param(
     [string]$BaseUrl = 'http://127.0.0.1:5000',
     [string[]]$Routes = @('/','/login','/register'),
+    [string[]]$AuthenticatedRoutes = @('/analysis','/dashboard','/upload'),
     [string]$OutputDir,
     [switch]$SkipServerStart,
-    [string]$BrowserPath
+    [string]$BrowserPath,
+    [string]$Username,
+    [string]$Password
 )
 
 $ErrorActionPreference = 'Stop'
@@ -97,6 +100,17 @@ function Get-RouteName {
     return (($Route -replace '^[\\/]+', '') -replace '[^a-zA-Z0-9_-]+', '_')
 }
 
+function Get-CsrfTokenFromHtml {
+    param([string]$Html)
+
+    $match = [regex]::Match($Html, 'name="_csrf_token"\s+value="([^"]+)"')
+    if ($match.Success) {
+        return $match.Groups[1].Value
+    }
+
+    throw 'Could not locate CSRF token in the login form.'
+}
+
 $repo = Split-Path -Parent $PSScriptRoot
 $outputRoot = Join-Path $repo 'output\ui_verification'
 $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
@@ -125,6 +139,7 @@ $profileRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("data_insighter_ui_v
 New-Item -ItemType Directory -Force -Path $profileRoot | Out-Null
 
 $results = @()
+$authenticatedResults = @()
 
 foreach ($route in $Routes) {
     $routeName = Get-RouteName -Route $route
@@ -183,8 +198,75 @@ foreach ($route in $Routes) {
     }
 }
 
+if ($Username -and $Password) {
+    $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    $loginPage = Invoke-WebRequest -Uri "$BaseUrl/login" -WebSession $webSession -UseBasicParsing
+    $csrfToken = Get-CsrfTokenFromHtml -Html $loginPage.Content
+    $loginResponse = Invoke-WebRequest -Uri "$BaseUrl/login" -Method Post -WebSession $webSession -UseBasicParsing -Body @{
+        username = $Username
+        password = $Password
+        _csrf_token = $csrfToken
+    }
+
+    foreach ($route in $AuthenticatedRoutes) {
+        $routeName = "auth_" + (Get-RouteName -Route $route)
+        $fullUrl = '{0}{1}' -f $BaseUrl.TrimEnd('/'), ($(if ($route.StartsWith('/')) { $route } else { "/$route" }))
+        $htmlPath = Join-Path $OutputDir ("{0}.html" -f $routeName)
+
+        try {
+            $response = Invoke-WebRequest -Uri $fullUrl -WebSession $webSession -UseBasicParsing
+            Set-Content -Path $htmlPath -Value $response.Content -Encoding UTF8
+            $authenticatedResults += [pscustomobject]@{
+                route = $route
+                url = $fullUrl
+                status_code = $response.StatusCode
+                dom_dump = $htmlPath
+                authenticated = $true
+            }
+        } catch {
+            $authenticatedResults += [pscustomobject]@{
+                route = $route
+                url = $fullUrl
+                status_code = $_.Exception.Response.StatusCode.value__
+                dom_dump = $htmlPath
+                authenticated = $true
+                error = $_.Exception.Message
+            }
+        }
+    }
+}
+
 $summaryPath = Join-Path $OutputDir 'verification_summary.json'
-$results | ConvertTo-Json -Depth 4 | Set-Content -Path $summaryPath -Encoding UTF8
+$summaryPayload = [pscustomobject]@{
+    public_routes = $results
+    authenticated_routes = $authenticatedResults
+}
+$summaryPayload | ConvertTo-Json -Depth 5 | Set-Content -Path $summaryPath -Encoding UTF8
+
+$reportPath = Join-Path $OutputDir 'verification_report.md'
+$reportLines = @(
+    '# Local UI Verification',
+    '',
+    "Base URL: $BaseUrl",
+    '',
+    '## Public routes'
+)
+
+foreach ($result in $results) {
+    $reportLines += "- $($result.route) -> screenshot: $($result.screenshot) / DOM: $($result.dom_dump)"
+}
+
+if ($authenticatedResults.Count) {
+    $reportLines += ''
+    $reportLines += '## Authenticated routes'
+    foreach ($result in $authenticatedResults) {
+        $status = if ($result.status_code) { $result.status_code } else { 'error' }
+        $detail = if ($result.error) { " / error: $($result.error)" } else { '' }
+        $reportLines += "- $($result.route) -> status: $status / DOM: $($result.dom_dump)$detail"
+    }
+}
+
+Set-Content -Path $reportPath -Value ($reportLines -join [Environment]::NewLine) -Encoding UTF8
 
 Write-Host "Local UI verification completed."
 Write-Host "HTTP status:"
@@ -195,3 +277,5 @@ Write-Host "Artifacts:"
 Write-Host "  $OutputDir"
 Write-Host "Summary:"
 Write-Host "  $summaryPath"
+Write-Host "Report:"
+Write-Host "  $reportPath"
