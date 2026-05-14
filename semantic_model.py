@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,20 @@ HIERARCHY_TEMPLATES = {
     'geography': ['region', 'country', 'state', 'province', 'city', 'postal', 'zip'],
     'commerce': ['department', 'category', 'subcategory', 'brand', 'product', 'sku'],
     'organization': ['company', 'division', 'department', 'team', 'manager', 'employee'],
+}
+
+OVERRIDABLE_FIELDS = {
+    'semantic_role',
+    'subtype',
+    'metric_family',
+    'default_aggregation',
+    'is_additive',
+    'format_hint',
+    'time_grain',
+    'analysis_priority',
+    'certified',
+    'business_name',
+    'description',
 }
 
 
@@ -238,11 +252,63 @@ def infer_semantic_type(column: str, series: pd.Series) -> Dict[str, Any]:
         'time_grain': time_grain,
         'hierarchy': hierarchy,
         'rationale': rationale,
+        'certified': False,
+        'business_name': column,
+        'description': '',
+        'override_source': 'inferred',
     }
 
 
-def infer_dataset_semantics(df: pd.DataFrame) -> List[Dict[str, Any]]:
-    return [infer_semantic_type(column, df[column]) for column in df.columns]
+def _clean_override(column: str, override: Mapping[str, Any] | None) -> Dict[str, Any]:
+    if not isinstance(override, Mapping):
+        return {}
+
+    cleaned = {
+        key: value
+        for key, value in override.items()
+        if key in OVERRIDABLE_FIELDS and value not in {None, ''}
+    }
+    cleaned['name'] = column
+    return cleaned
+
+
+def apply_semantic_overrides(
+    profiles: List[Dict[str, Any]],
+    overrides: Mapping[str, Mapping[str, Any]] | None = None,
+) -> List[Dict[str, Any]]:
+    if not overrides:
+        return profiles
+
+    applied_profiles: List[Dict[str, Any]] = []
+    override_map = {
+        column: _clean_override(column, override)
+        for column, override in overrides.items()
+    }
+
+    for profile in profiles:
+        merged = dict(profile)
+        override = override_map.get(profile['name']) or {}
+        if override:
+            for field, value in override.items():
+                if field == 'name':
+                    continue
+                merged[field] = value
+            merged['override_source'] = 'manual'
+            merged['rationale'] = [
+                *(profile.get('rationale') or []),
+                'The semantic layer was manually adjusted in the workspace and should be treated as the current business definition.',
+            ]
+        applied_profiles.append(merged)
+
+    return applied_profiles
+
+
+def infer_dataset_semantics(
+    df: pd.DataFrame,
+    overrides: Mapping[str, Mapping[str, Any]] | None = None,
+) -> List[Dict[str, Any]]:
+    profiles = [infer_semantic_type(column, df[column]) for column in df.columns]
+    return apply_semantic_overrides(profiles, overrides)
 
 
 def summarize_semantic_model(df: pd.DataFrame, profiles: List[Dict[str, Any]] | None = None) -> Dict[str, Any]:
@@ -307,6 +373,8 @@ def summarize_semantic_model(df: pd.DataFrame, profiles: List[Dict[str, Any]] | 
         'datetime': len(datetimes),
         'identifiers': len(identifiers),
     }
+    certified_metrics = [profile['name'] for profile in measures if profile.get('certified')]
+    manual_override_count = len([profile for profile in profiles if profile.get('override_source') == 'manual'])
 
     return {
         'dataset_role': dataset_role,
@@ -318,4 +386,6 @@ def summarize_semantic_model(df: pd.DataFrame, profiles: List[Dict[str, Any]] | 
         'recommended_dimensions': recommended_dimensions,
         'semantic_coverage': semantic_coverage,
         'warnings': warnings,
+        'certified_metrics': certified_metrics,
+        'manual_override_count': manual_override_count,
     }

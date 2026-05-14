@@ -1,5 +1,3 @@
-import json
-
 import app as app_module
 
 
@@ -34,7 +32,7 @@ def test_registration_blocks_duplicate_email(tmp_path, monkeypatch):
             '_csrf_token': token,
         }, follow_redirects=True)
 
-        stored_users = json.loads(users_file.read_text(encoding='utf-8'))
+        stored_users = app_module._load_users()
         assert list(stored_users.keys()) == ['first_user']
         assert b'Email is already registered' in response.data
 

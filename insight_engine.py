@@ -238,14 +238,14 @@ def seasonality_insights(df: pd.DataFrame, datetime_columns: List[str], measures
     for date_column in datetime_columns[:2]:
         for measure in measures[:4]:
             working = df[[date_column, measure]].dropna()
-            if len(working) < 18:
+            if len(working) < 12:
                 continue
 
             working = working.copy()
             working[date_column] = pd.to_datetime(working[date_column], errors='coerce')
             working[measure] = pd.to_numeric(working[measure], errors='coerce')
             working = working.dropna()
-            if len(working) < 18:
+            if len(working) < 12:
                 continue
 
             working['period'] = working[date_column].dt.to_period('M')
@@ -290,6 +290,125 @@ def seasonality_insights(df: pd.DataFrame, datetime_columns: List[str], measures
                 'Monthly totals are compared across repeated month-of-year positions rather than raw row order.',
                 'Seasonality only surfaces when the spread is meaningful relative to the typical monthly level.',
             ], sample_size=len(monthly), effect_size=max(eta_squared, seasonal_strength), p_value=p_value, stability=min(1.0, seasonal_strength)))
+
+    findings.sort(key=lambda item: (item.get('priority_score', 0), item.get('score', 0)), reverse=True)
+    return findings[:1]
+
+
+def forecast_insights(df: pd.DataFrame, datetime_columns: List[str], measures: List[str]) -> List[Dict[str, Any]]:
+    findings: List[Dict[str, Any]] = []
+    if not datetime_columns or not measures:
+        return findings
+
+    for date_column in datetime_columns[:1]:
+        for measure in measures[:3]:
+            working = df[[date_column, measure]].dropna().copy()
+            if len(working) < 12:
+                continue
+
+            working[date_column] = pd.to_datetime(working[date_column], errors='coerce')
+            working[measure] = pd.to_numeric(working[measure], errors='coerce')
+            working = working.dropna()
+            if len(working) < 12:
+                continue
+
+            working['period'] = working[date_column].dt.to_period('M')
+            monthly = working.groupby('period')[measure].sum().sort_index()
+            if len(monthly) < 6:
+                continue
+
+            y = monthly.to_numpy(dtype=float)
+            x = np.arange(len(y), dtype=float)
+            regression = stats.linregress(x, y)
+            if not np.isfinite(regression.slope):
+                continue
+
+            forecast_horizon = min(3, max(1, len(monthly) // 6))
+            forecast_x = np.arange(len(y), len(y) + forecast_horizon, dtype=float)
+            forecast_y = regression.intercept + regression.slope * forecast_x
+            latest_value = float(y[-1])
+            next_value = float(forecast_y[0])
+            delta = next_value - latest_value
+            baseline = abs(latest_value) or 1.0
+            delta_pct = delta / baseline
+            if abs(delta_pct) < 0.05 and abs(float(regression.rvalue or 0)) < 0.35:
+                continue
+
+            direction = 'grow' if delta >= 0 else 'decline'
+            findings.append(enrich_with_statistics({
+                'kind': 'forecast',
+                'title': f'{measure} is projected to {direction} next period',
+                'detail': f'A linear period forecast points to {next_value:,.2f} next, versus the latest {latest_value:,.2f}.',
+                'score': round(abs(delta_pct) * 100, 3),
+                'stat': f'next period {next_value:,.2f} ({delta_pct * 100:+.1f}%)',
+                'recommended_chart': {
+                    'title': f'{measure} forecast outlook',
+                    'description': 'Use a trend view with a forecast extension to inspect the expected next-period direction.',
+                    'type': 'line',
+                    'columns': [date_column, measure],
+                    'sample_percentage': 100,
+                }
+            }, [
+                'The forecast is based on period-level totals and a simple linear regression, so it is interpretable and easy to challenge.',
+                'This is best used as directional guidance, especially when paired with anomaly and seasonality context.',
+            ], sample_size=len(monthly), effect_size=max(abs(delta_pct), abs(float(regression.rvalue or 0))), p_value=regression.pvalue))
+
+    findings.sort(key=lambda item: (item.get('priority_score', 0), item.get('score', 0)), reverse=True)
+    return findings[:1]
+
+
+def decomposition_insights(df: pd.DataFrame, datetime_columns: List[str], measures: List[str]) -> List[Dict[str, Any]]:
+    findings: List[Dict[str, Any]] = []
+    if not datetime_columns or not measures:
+        return findings
+
+    for date_column in datetime_columns[:1]:
+        for measure in measures[:3]:
+            working = df[[date_column, measure]].dropna().copy()
+            if len(working) < 16:
+                continue
+
+            working[date_column] = pd.to_datetime(working[date_column], errors='coerce')
+            working[measure] = pd.to_numeric(working[measure], errors='coerce')
+            working = working.dropna()
+            if len(working) < 16:
+                continue
+
+            working['period'] = working[date_column].dt.to_period('M')
+            monthly = working.groupby('period')[measure].sum().sort_index()
+            if len(monthly) < 8:
+                continue
+
+            values = monthly.astype(float)
+            trend = values.rolling(window=3, min_periods=2, center=True).mean().bfill().ffill()
+            residual = values - trend
+            seasonal_profile = residual.groupby(residual.index.month).mean()
+            seasonal_range = float(seasonal_profile.max() - seasonal_profile.min()) if not seasonal_profile.empty else 0.0
+            trend_change = float(trend.iloc[-1] - trend.iloc[0])
+            baseline = abs(float(values.mean())) or 1.0
+            if abs(trend_change) / baseline < 0.08 and seasonal_range / baseline < 0.1:
+                continue
+
+            strongest_month = int(seasonal_profile.sort_values(ascending=False).index[0]) if not seasonal_profile.empty else None
+            weakest_month = int(seasonal_profile.sort_values(ascending=True).index[0]) if not seasonal_profile.empty else None
+            findings.append(enrich_with_statistics({
+                'kind': 'decomposition',
+                'title': f'{measure} can be split into trend and recurring pattern',
+                'detail': f'The smoothed trend changed by {trend_change:,.2f}, while the month-of-year seasonal swing spans {seasonal_range:,.2f}.',
+                'score': round(max(abs(trend_change), abs(seasonal_range)), 3),
+                'stat': f'trend delta {trend_change:,.2f} / seasonal range {seasonal_range:,.2f}',
+                'recommended_chart': {
+                    'title': f'{measure} trend vs seasonal pattern',
+                    'description': 'Inspect a time-series view to separate structural movement from repeating calendar effects.',
+                    'type': 'line',
+                    'columns': [date_column, measure],
+                    'sample_percentage': 100,
+                }
+            }, [
+                'The engine smooths the time series to estimate a core trend, then attributes the remaining repeated month effect to seasonality.',
+                'This helps distinguish durable momentum from calendar-driven volatility before stakeholders react to a single spike.',
+                *( [f'Month {strongest_month} tends to run above baseline while month {weakest_month} tends to run below it.'] if strongest_month and weakest_month else [] ),
+            ], sample_size=len(monthly), effect_size=max(abs(trend_change) / baseline, seasonal_range / baseline), stability=min(1.0, seasonal_range / baseline)))
 
     findings.sort(key=lambda item: (item.get('priority_score', 0), item.get('score', 0)), reverse=True)
     return findings[:1]

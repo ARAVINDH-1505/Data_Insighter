@@ -15,6 +15,15 @@ from access_control_service import (
     with_row_policy,
     with_shared_user,
 )
+from auth_store import (
+    email_exists as auth_email_exists,
+    get_user,
+    get_user_by_email,
+    list_users as list_auth_users,
+    migrate_legacy_users,
+    replace_users as replace_auth_users,
+    upsert_user,
+)
 from data_processor import DataProcessor
 from dataset_runtime import load_accessible_dataframe
 from visualization_generator import VisualizationGenerator
@@ -34,6 +43,7 @@ from refresh_job_service import (
     create_refresh_schedule,
     list_refresh_schedules,
     perform_dataset_refresh,
+    refresh_worker_summary,
     run_refresh_job_by_id,
     start_refresh_scheduler,
 )
@@ -129,21 +139,24 @@ ensure_workspace_dirs()
 _background_refresh_started = False
 
 # ---------- User store helpers (FIX #2 + #3) ----------
-USERS_FILE = os.path.join(APP_ROOT, 'users.json')
+DEFAULT_USERS_FILE = os.path.join(APP_ROOT, 'users.json')
+USERS_FILE = DEFAULT_USERS_FILE
 
 
 def _normalize_email(email):
     return (email or '').strip().lower()
 
+
+def _auth_db_path():
+    if USERS_FILE != DEFAULT_USERS_FILE:
+        return os.path.join(os.path.dirname(os.path.abspath(USERS_FILE)), 'auth.db')
+    return None
+
+
 def _load_users():
-    """Load users from JSON file."""
-    if os.path.exists(USERS_FILE):
-        try:
-            with open(USERS_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return {}
-    return {}
+    """Load users from the SQLite-backed auth store."""
+    migrate_legacy_users(USERS_FILE, db_path=_auth_db_path())
+    return list_auth_users(db_path=_auth_db_path())
 
 
 def _write_json_file_atomic(path, payload):
@@ -170,22 +183,12 @@ def _write_json_file_atomic(path, payload):
 
 
 def _save_users(users):
-    """Save users to JSON file."""
-    _write_json_file_atomic(USERS_FILE, users)
+    """Save users into the SQLite-backed auth store."""
+    replace_auth_users(users, db_path=_auth_db_path())
 
 
 def _email_exists(users, email, exclude_username=None):
-    normalized = _normalize_email(email)
-    for username, details in users.items():
-        if exclude_username and username == exclude_username:
-            continue
-        if _normalize_email(details.get('email')) == normalized:
-            return True
-    return False
-
-# Start with an empty user store; accounts should be created through registration.
-if not os.path.exists(USERS_FILE):
-    _save_users({})
+    return auth_email_exists(email, exclude_username=exclude_username, db_path=_auth_db_path())
 
 # ---------- CSRF helpers (FIX #4) ----------
 def generate_csrf_token():
@@ -301,6 +304,7 @@ def dataset_metadata(display_name, columns, extra=None):
         'columns': columns,
         'lineage_steps': [],
         'pipeline_steps': [],
+        'semantic_overrides': {},
         'shared_with': [],
         'row_policies': [],
         'lifecycle': {
@@ -656,6 +660,26 @@ def load_active_dataset_frame():
     return frame, record, filepath
 
 
+def dataset_semantic_overrides(record):
+    return (record or {}).get('metadata', {}).get('semantic_overrides') or {}
+
+
+def scoped_semantic_overrides(overrides, columns):
+    valid_columns = set(columns or [])
+    return {
+        column: override
+        for column, override in (overrides or {}).items()
+        if column in valid_columns
+    }
+
+
+def processor_for_dataset(frame, dataset_record):
+    return DataProcessor(
+        dataframe=frame,
+        semantic_overrides=dataset_semantic_overrides(dataset_record),
+    )
+
+
 def login_required(view):
     """Require an authenticated session for app pages and APIs."""
     @wraps(view)
@@ -936,7 +960,7 @@ def analysis():
 def analysis_summary():
     try:
         frame, dataset_record, _ = load_active_dataset_frame()
-        processor = DataProcessor(dataframe=frame)
+        processor = processor_for_dataset(frame, dataset_record)
         return jsonify({
             'success': True,
             'summary': processor.get_analysis_summary(),
@@ -946,12 +970,97 @@ def analysis_summary():
     except Exception as e:
         return error_response(str(e), 400)
 
+
+@app.route('/semantic_layer')
+@login_required
+def semantic_layer():
+    try:
+        frame, dataset_record, _ = load_active_dataset_frame()
+        processor = processor_for_dataset(frame, dataset_record)
+        summary = processor.get_analysis_summary()
+        return jsonify({
+            'success': True,
+            'dataset_id': dataset_record['id'],
+            'overrides': dataset_semantic_overrides(dataset_record),
+            'semantic_profiles': summary.get('semantic_profiles', []),
+            'semantic_model': summary.get('semantic_model', {}),
+        })
+    except Exception as e:
+        return error_response(str(e), 400)
+
+
+@app.route('/datasets/<dataset_id>/semantic_overrides', methods=['POST'])
+@login_required
+def save_semantic_overrides(dataset_id):
+    if not validate_csrf_token():
+        return error_response('Invalid request token', 400)
+
+    record = get_accessible_dataset_record(session['user'], dataset_id)
+    if not record:
+        return error_response('Dataset not found in your workspace.', 404)
+
+    access_error = require_dataset_edit_access(record)
+    if access_error:
+        return access_error
+
+    payload = request.get_json(silent=True) or {}
+    overrides = payload.get('overrides') or {}
+    if not isinstance(overrides, dict):
+        return error_response('Semantic overrides must be sent as a column map.', 400)
+
+    frame = load_accessible_dataframe(record['stored_path'], record, session['user'])
+    valid_columns = set(frame.columns.tolist())
+    normalized_overrides = {}
+    allowed_fields = {
+        'semantic_role',
+        'subtype',
+        'metric_family',
+        'default_aggregation',
+        'is_additive',
+        'format_hint',
+        'time_grain',
+        'analysis_priority',
+        'certified',
+        'business_name',
+        'description',
+    }
+
+    for column, override in overrides.items():
+        if column not in valid_columns or not isinstance(override, dict):
+            continue
+        cleaned = {
+            key: value
+            for key, value in override.items()
+            if key in allowed_fields and value not in {None, ''}
+        }
+        if cleaned:
+            normalized_overrides[column] = cleaned
+
+    metadata = dict(record.get('metadata') or {})
+    metadata['semantic_overrides'] = normalized_overrides
+    updated_record = update_dataset_record(record['owner'], record['id'], {'metadata': metadata})
+    processor = processor_for_dataset(frame, updated_record)
+    summary = processor.get_analysis_summary()
+    record_audit_event(
+        'semantic_layer_updated',
+        dataset_id=updated_record['id'],
+        artifact_id=updated_record['id'],
+        details={'override_count': len(normalized_overrides)},
+    )
+
+    return jsonify({
+        'success': True,
+        'dataset': updated_record,
+        'summary': summary,
+        'overrides': normalized_overrides,
+    })
+
 @app.route('/executive_report')
 @login_required
 def executive_report():
     try:
         frame, dataset_record, _ = load_active_dataset_frame()
-        processor = DataProcessor(dataframe=frame)
+        processor = processor_for_dataset(frame, dataset_record)
         report = build_report_payload(processor.get_analysis_summary(), dataset_record)
         return jsonify({'success': True, 'report': report})
     except Exception as e:
@@ -1003,7 +1112,7 @@ def save_report_snapshot():
 
     try:
         frame, dataset_record, _ = load_active_dataset_frame()
-        processor = DataProcessor(dataframe=frame)
+        processor = processor_for_dataset(frame, dataset_record)
         report = build_report_payload(processor.get_analysis_summary(), dataset_record)
         default_name = f"{report['dataset_name']} executive summary"
         name = (payload.get('name') or default_name).strip() or default_name
@@ -1074,7 +1183,7 @@ def share_report_record(report_id):
 def governance_summary():
     try:
         frame, dataset_record, _ = load_active_dataset_frame()
-        processor = DataProcessor(dataframe=frame)
+        processor = processor_for_dataset(frame, dataset_record)
         summary = processor.get_analysis_summary()
         dataset_id = dataset_record['id']
         dashboards = list_accessible_dashboard_records(session['user'], dataset_id=dataset_id)
@@ -1391,6 +1500,10 @@ def apply_dataset_transform():
                     'schema_snapshot': schema_snapshot(transformed_df),
                     'transform_operation': operation,
                     'transform_description': description,
+                    'semantic_overrides': scoped_semantic_overrides(
+                        current_metadata.get('semantic_overrides', {}),
+                        transformed_df.columns.tolist(),
+                    ),
                     'lineage_steps': parent_lineage + [lineage_step],
                     'pipeline_steps': parent_pipeline + [lineage_step],
                 },
@@ -1406,7 +1519,7 @@ def apply_dataset_transform():
         session['current_dataset_id'] = dataset_record['id']
         session['current_filepath'] = derived_path
 
-        processor = DataProcessor(derived_path)
+        processor = DataProcessor(derived_path, semantic_overrides=dataset_semantic_overrides(dataset_record))
         return jsonify({
             'success': True,
             'message': description,
@@ -1518,6 +1631,10 @@ def rebuild_dataset(dataset_id):
                 {
                     'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
                     'schema_snapshot': schema_snapshot(rebuilt_df),
+                    'semantic_overrides': scoped_semantic_overrides(
+                        record_metadata.get('semantic_overrides', {}),
+                        rebuilt_df.columns.tolist(),
+                    ),
                     'pipeline_steps': record_metadata.get('pipeline_steps', []),
                     'lineage_steps': record_metadata.get('lineage_steps', []) + [rebuild_step],
                     'rebuilt_from_dataset_id': record['id'],
@@ -1535,7 +1652,10 @@ def rebuild_dataset(dataset_id):
         session['current_dataset_id'] = rebuilt_record['id']
         session['current_filepath'] = rebuilt_path
 
-        processor = DataProcessor(dataframe=load_accessible_dataframe(rebuilt_path, rebuilt_record, session['user']))
+        processor = processor_for_dataset(
+            load_accessible_dataframe(rebuilt_path, rebuilt_record, session['user']),
+            rebuilt_record,
+        )
         return jsonify({
             'success': True,
             'message': 'Pipeline rebuilt into a new dataset version.',
@@ -1581,7 +1701,10 @@ def refresh_dataset(dataset_id):
             },
         )
 
-        processor = DataProcessor(dataframe=load_accessible_dataframe(updated_record['stored_path'], updated_record, session['user']))
+        processor = processor_for_dataset(
+            load_accessible_dataframe(updated_record['stored_path'], updated_record, session['user']),
+            updated_record,
+        )
         return jsonify({
             'success': True,
             'message': 'Dataset refreshed from its latest source definition.',
@@ -1606,7 +1729,11 @@ def dataset_refresh_jobs(dataset_id):
         return error_response('Dataset not found in your workspace.', 404)
     jobs = list_all_refresh_job_records(dataset_id=dataset_id)
     visible_jobs = [job for job in jobs if can_view_record(record, session['user'])]
-    return jsonify({'success': True, 'jobs': visible_jobs})
+    return jsonify({
+        'success': True,
+        'jobs': visible_jobs,
+        'worker_summary': refresh_worker_summary(dataset_id),
+    })
 
 
 @app.route('/datasets/<dataset_id>/refresh_jobs', methods=['POST'])
@@ -1961,6 +2088,10 @@ def create_joined_dataset():
                 {
                     'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
                     'schema_snapshot': schema_snapshot(joined_df),
+                    'semantic_overrides': scoped_semantic_overrides(
+                        left_metadata.get('semantic_overrides', {}),
+                        joined_df.columns.tolist(),
+                    ),
                     'join': {
                         'left_dataset_id': left_record['id'],
                         'left_column': payload.get('left_column'),
@@ -1996,7 +2127,7 @@ def create_joined_dataset():
 
         session['current_dataset_id'] = dataset_record['id']
         session['current_filepath'] = derived_path
-        processor = DataProcessor(derived_path)
+        processor = DataProcessor(derived_path, semantic_overrides=dataset_semantic_overrides(dataset_record))
         return jsonify({
             'success': True,
             'dataset': dataset_record,
@@ -2257,6 +2388,8 @@ def dashboard_library():
                 'chart_count': len([item for item in dashboard.get('dashboard_viz', []) if item.get('type') != 'text']),
                 'shared_count': len(shared_entries(dashboard)),
                 'lifecycle': artifact_lifecycle(dashboard),
+                'page_count': len((dashboard.get('dashboard_state') or {}).get('pages') or []),
+                'bookmark_count': len((dashboard.get('dashboard_state') or {}).get('bookmarks') or []),
             }
             for dashboard in dashboards
         ]
@@ -2358,7 +2491,7 @@ def starter_dashboard():
 
     try:
         frame, dataset_record, _ = load_active_dataset_frame()
-        processor = DataProcessor(dataframe=frame)
+        processor = processor_for_dataset(frame, dataset_record)
         summary = processor.get_analysis_summary()
         composed = compose_starter_dashboard(
             summary,
@@ -2372,6 +2505,7 @@ def starter_dashboard():
             'success': True,
             'layout_name': composed.get('layout_name'),
             'dashboard_viz': dashboard_viz,
+            'dashboard_state': composed.get('dashboard_state', {}),
         })
     except Exception as e:
         return error_response(str(e), 400)
@@ -2381,7 +2515,7 @@ def starter_dashboard():
 def dashboard_filter_options():
     try:
         frame, _, _ = load_active_dataset_frame()
-        processor = DataProcessor(dataframe=frame)
+        processor = processor_for_dataset(frame, dataset_record)
         summary = processor.get_analysis_summary()
         semantic_profiles = summary.get('semantic_profiles', [])
         dimension_columns = [
@@ -2432,7 +2566,6 @@ def register():
             flash('Password must be at least 6 characters', 'error')
             return redirect(url_for('register'))
         
-        # FIX #3: Actually save the user with a hashed password
         users = _load_users()
         if username in users:
             flash('Username already exists', 'error')
@@ -2440,12 +2573,13 @@ def register():
         if _email_exists(users, email):
             flash('Email is already registered', 'error')
             return redirect(url_for('register'))
-        
-        users[username] = {
-            'email': _normalize_email(email),
-            'password_hash': generate_password_hash(password)
-        }
-        _save_users(users)
+
+        upsert_user(
+            username,
+            _normalize_email(email),
+            generate_password_hash(password),
+            db_path=_auth_db_path(),
+        )
         
         flash('Registration successful. Please log in.', 'success')
         return redirect(url_for('login'))
@@ -2463,22 +2597,13 @@ def login():
         password = request.form.get('password', '')
         normalized_login = _normalize_email(username)
         
-        # FIX #2: Authenticate against stored users with hashed passwords
-        users = _load_users()
         matched_username = username
-        user = users.get(username)
+        user = get_user(username, db_path=_auth_db_path())
         if user is None:
-            matched = next(
-                (
-                    (stored_username, details)
-                    for stored_username, details in users.items()
-                    if _normalize_email(details.get('email')) == normalized_login
-                ),
-                None
-            )
-            if matched:
-                matched_username, user = matched
-        
+            user = get_user_by_email(normalized_login, db_path=_auth_db_path())
+            if user:
+                matched_username = user['username']
+
         if user and check_password_hash(user['password_hash'], password):
             session['user'] = matched_username
             return redirect(url_for('index'))

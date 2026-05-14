@@ -10,7 +10,9 @@ from insight_engine import (
     anomaly_insights,
     build_executive_takeaways,
     contribution_insights,
+    decomposition_insights,
     enrich_with_statistics,
+    forecast_insights,
     funnel_insights,
     model_driver_insights,
     retention_cohort_insights,
@@ -22,8 +24,14 @@ from semantic_model import infer_dataset_semantics, summarize_semantic_model
 
 
 class DataProcessor:
-    def __init__(self, filepath: str | None = None, dataframe: pd.DataFrame | None = None):
+    def __init__(
+        self,
+        filepath: str | None = None,
+        dataframe: pd.DataFrame | None = None,
+        semantic_overrides: Dict[str, Dict[str, Any]] | None = None,
+    ):
         self.filepath = filepath
+        self.semantic_overrides = semantic_overrides or {}
         self._semantic_profiles_cache: List[Dict[str, Any]] | None = None
         self._semantic_model_cache: Dict[str, Any] | None = None
         if dataframe is not None:
@@ -71,7 +79,7 @@ class DataProcessor:
 
     def _semantic_profiles(self) -> List[Dict[str, Any]]:
         if self._semantic_profiles_cache is None:
-            self._semantic_profiles_cache = infer_dataset_semantics(self.df)
+            self._semantic_profiles_cache = infer_dataset_semantics(self.df, self.semantic_overrides)
         return self._semantic_profiles_cache
 
     def _semantic_model_summary(self) -> Dict[str, Any]:
@@ -432,6 +440,8 @@ class DataProcessor:
             + segment_driver_insights(self.df, dimensions, measures)
             + contribution_insights(self.df, dimensions, measures)
             + seasonality_insights(self.df, datetimes, measures)
+            + forecast_insights(self.df, datetimes, measures)
+            + decomposition_insights(self.df, datetimes, measures)
             + variance_explanation_insights(self.df, datetimes, dimensions, measures)
             + funnel_insights(self.df, measures)
             + model_driver_insights(self.df, dimensions, measures)

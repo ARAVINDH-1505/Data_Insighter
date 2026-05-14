@@ -1,5 +1,7 @@
 import os
 import re
+import secrets
+import socket
 import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,6 +26,7 @@ from workspace_store import (
 _SCHEDULER_LOCK = threading.Lock()
 _SCHEDULER_THREAD: Optional[threading.Thread] = None
 _RUNNER_LOCK = threading.Lock()
+LEASE_SECONDS = 240
 
 
 def _utcnow() -> datetime:
@@ -57,6 +60,70 @@ def _managed_dataset_path(managed_dir: str, record: Dict[str, Any]) -> str:
     dataset_name = (record.get('metadata') or {}).get('display_name') or record.get('source_name') or record['id']
     filename = f"{_safe_stem(dataset_name)}_{record['id']}.parquet"
     return os.path.join(managed_dir, filename)
+
+
+def worker_id(prefix: str = 'worker') -> str:
+    return f"{prefix}:{socket.gethostname()}:{os.getpid()}:{secrets.token_hex(4)}"
+
+
+def _runtime_metadata(job: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = dict(job.get('metadata') or {})
+    return dict(metadata.get('worker_runtime') or {})
+
+
+def _with_runtime(job: Dict[str, Any], runtime: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = dict(job.get('metadata') or {})
+    metadata['worker_runtime'] = runtime
+    return metadata
+
+
+def _lease_is_active(runtime: Dict[str, Any], reference_time: Optional[datetime] = None) -> bool:
+    reference_time = reference_time or _utcnow()
+    lease_until = _parse_timestamp(runtime.get('lease_expires_at'))
+    return bool(lease_until and lease_until > reference_time and runtime.get('claimed_by'))
+
+
+def _claim_job(job: Dict[str, Any], runner_id: str, lease_seconds: int = LEASE_SECONDS) -> Optional[Dict[str, Any]]:
+    runtime = _runtime_metadata(job)
+    if _lease_is_active(runtime) and runtime.get('claimed_by') != runner_id:
+        return None
+
+    now = _utcnow()
+    claimed_runtime = {
+        'claimed_by': runner_id,
+        'claimed_at': _isoformat(now),
+        'heartbeat_at': _isoformat(now),
+        'lease_expires_at': _isoformat(now + timedelta(seconds=lease_seconds)),
+    }
+    return update_refresh_job_record(
+        job['owner'],
+        job['id'],
+        {
+            'last_status': 'running',
+            'metadata': _with_runtime(job, claimed_runtime),
+        },
+    )
+
+
+def _clear_claim(job: Dict[str, Any], runner_id: str, status: str) -> Dict[str, Any]:
+    runtime = _runtime_metadata(job)
+    now = _utcnow()
+    cleared_runtime = {
+        **runtime,
+        'claimed_by': None,
+        'lease_expires_at': None,
+        'heartbeat_at': _isoformat(now),
+        'last_worker_id': runner_id,
+        'last_completed_at': _isoformat(now),
+        'last_status': status,
+    }
+    return update_refresh_job_record(
+        job['owner'],
+        job['id'],
+        {
+            'metadata': _with_runtime(job, cleared_runtime),
+        },
+    )
 
 
 def _write_frame(df: pd.DataFrame, target_path: str) -> None:
@@ -314,13 +381,16 @@ def due_refresh_jobs(reference_time: Optional[datetime] = None) -> List[Dict[str
     for job in list_all_refresh_job_records():
         if not job.get('enabled', True):
             continue
+        if _lease_is_active(_runtime_metadata(job), reference_time):
+            continue
         next_run_at = _parse_timestamp(job.get('next_run_at')) or _parse_timestamp(job.get('updated_at'))
         if next_run_at and next_run_at <= reference_time:
             due_jobs.append(job)
     return due_jobs
 
 
-def run_refresh_job(job: Dict[str, Any], managed_dir: str) -> Dict[str, Any]:
+def run_refresh_job(job: Dict[str, Any], managed_dir: str, runner_id: Optional[str] = None) -> Dict[str, Any]:
+    runner_id = runner_id or worker_id('manual')
     record = get_dataset_record(job['owner'], job['dataset_id'])
     now = _utcnow()
     if not record:
@@ -332,6 +402,14 @@ def run_refresh_job(job: Dict[str, Any], managed_dir: str) -> Dict[str, Any]:
                 'last_status': 'failed',
                 'last_error': 'Dataset record no longer exists.',
                 'next_run_at': _isoformat(now + timedelta(minutes=int(job.get('cadence_minutes', 60)))),
+                'metadata': _with_runtime(job, {
+                    **_runtime_metadata(job),
+                    'claimed_by': None,
+                    'lease_expires_at': None,
+                    'heartbeat_at': _isoformat(now),
+                    'last_worker_id': runner_id,
+                    'last_status': 'failed',
+                }),
             },
         )
         return {'success': False, 'job': updated_job, 'error': 'Dataset record no longer exists.'}
@@ -356,6 +434,15 @@ def run_refresh_job(job: Dict[str, Any], managed_dir: str) -> Dict[str, Any]:
                     **(job.get('metadata') or {}),
                     'last_schema_change': diff,
                     'last_run_details': refresh_details,
+                    'worker_runtime': {
+                        **_runtime_metadata(job),
+                        'claimed_by': None,
+                        'lease_expires_at': None,
+                        'heartbeat_at': _isoformat(now),
+                        'last_worker_id': runner_id,
+                        'last_completed_at': _isoformat(now),
+                        'last_status': 'succeeded',
+                    },
                 },
             },
         )
@@ -376,6 +463,18 @@ def run_refresh_job(job: Dict[str, Any], managed_dir: str) -> Dict[str, Any]:
                 'last_status': 'failed',
                 'last_error': str(exc),
                 'next_run_at': _isoformat(now + timedelta(minutes=int(job.get('cadence_minutes', 60)))),
+                'metadata': {
+                    **(job.get('metadata') or {}),
+                    'worker_runtime': {
+                        **_runtime_metadata(job),
+                        'claimed_by': None,
+                        'lease_expires_at': None,
+                        'heartbeat_at': _isoformat(now),
+                        'last_worker_id': runner_id,
+                        'last_completed_at': _isoformat(now),
+                        'last_status': 'failed',
+                    },
+                },
             },
         )
         return {'success': False, 'job': updated_job, 'error': str(exc)}
@@ -385,15 +484,55 @@ def run_refresh_job_by_id(username: str, job_id: str, managed_dir: str) -> Dict[
     job = get_refresh_job_record(username, job_id)
     if not job:
         raise ValueError('Refresh schedule not found.')
-    return run_refresh_job(job, managed_dir)
+    claimed = _claim_job(job, worker_id('manual'))
+    return run_refresh_job(claimed or job, managed_dir, runner_id=(claimed or job).get('metadata', {}).get('worker_runtime', {}).get('claimed_by'))
 
 
-def run_due_refresh_jobs(managed_dir: str) -> List[Dict[str, Any]]:
+def run_due_refresh_jobs(managed_dir: str, runner_id: Optional[str] = None, max_jobs: Optional[int] = None) -> List[Dict[str, Any]]:
     results = []
+    runner_id = runner_id or worker_id('embedded')
     with _RUNNER_LOCK:
         for job in due_refresh_jobs():
-            results.append(run_refresh_job(job, managed_dir))
+            claimed_job = _claim_job(job, runner_id)
+            if not claimed_job:
+                continue
+            results.append(run_refresh_job(claimed_job, managed_dir, runner_id=runner_id))
+            if max_jobs is not None and len(results) >= max_jobs:
+                break
     return results
+
+
+def run_refresh_worker(
+    managed_dir: str,
+    poll_seconds: int = 30,
+    iterations: Optional[int] = None,
+    runner_id: Optional[str] = None,
+) -> str:
+    runner_id = runner_id or worker_id('worker')
+    completed = 0
+    while iterations is None or completed < iterations:
+        run_due_refresh_jobs(managed_dir, runner_id=runner_id)
+        completed += 1
+        if iterations is not None and completed >= iterations:
+            break
+        threading.Event().wait(poll_seconds)
+    return runner_id
+
+
+def refresh_worker_summary(dataset_id: Optional[str] = None) -> Dict[str, Any]:
+    jobs = list_all_refresh_job_records(dataset_id=dataset_id)
+    runtime_states = [_runtime_metadata(job) for job in jobs]
+    active_claims = [state for state in runtime_states if _lease_is_active(state)]
+    last_completed = sorted(
+        [state.get('last_completed_at') for state in runtime_states if state.get('last_completed_at')],
+        reverse=True,
+    )
+    return {
+        'active_claims': len(active_claims),
+        'last_completed_at': last_completed[0] if last_completed else None,
+        'worker_ids': sorted({state.get('last_worker_id') for state in runtime_states if state.get('last_worker_id')}),
+        'embedded_scheduler': bool(_SCHEDULER_THREAD and _SCHEDULER_THREAD.is_alive()),
+    }
 
 
 def start_refresh_scheduler(managed_dir: str, poll_seconds: int = 30) -> None:

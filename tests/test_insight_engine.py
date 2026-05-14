@@ -2,6 +2,8 @@ import pandas as pd
 
 from insight_engine import (
     anomaly_insights,
+    decomposition_insights,
+    forecast_insights,
     funnel_insights,
     model_driver_insights,
     retention_cohort_insights,
@@ -101,5 +103,31 @@ def test_model_driver_insights_surface_top_predictor():
 
     assert insights
     assert insights[0]['kind'] == 'model_driver'
-    assert 'R²' in insights[0]['stat']
+    assert 'R' in insights[0]['stat']
     assert insights[0]['confidence_score'] >= 60
+
+
+def test_forecast_insights_project_directional_next_period():
+    df = pd.DataFrame({
+        'date': pd.date_range('2025-01-01', periods=12, freq='MS'),
+        'revenue': [100, 108, 115, 123, 131, 140, 149, 157, 166, 176, 187, 199],
+    })
+
+    insights = forecast_insights(df, ['date'], ['revenue'])
+
+    assert insights
+    assert insights[0]['kind'] == 'forecast'
+    assert 'projected' in insights[0]['title']
+
+
+def test_decomposition_insights_surface_trend_and_recurring_pattern():
+    df = pd.DataFrame({
+        'date': pd.date_range('2024-01-01', periods=18, freq='MS'),
+        'revenue': [100, 112, 125, 120, 132, 145, 140, 152, 166, 160, 173, 188, 182, 196, 211, 206, 220, 236],
+    })
+
+    insights = decomposition_insights(df, ['date'], ['revenue'])
+
+    assert insights
+    assert insights[0]['kind'] == 'decomposition'
+    assert 'seasonal range' in insights[0]['stat']

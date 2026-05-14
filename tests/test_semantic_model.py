@@ -40,3 +40,27 @@ def test_semantic_model_summary_infers_fact_like_dataset_grain():
     assert model['primary_date_column'] == 'order_date'
     assert 'sales' in model['recommended_measures']
     assert model['semantic_coverage']['measures'] == 2
+
+
+def test_semantic_overrides_promote_certified_business_definition():
+    df = pd.DataFrame({
+        'revenue': [120.0, 140.0, 90.0, 200.0],
+        'region': ['North', 'South', 'North', 'East'],
+    })
+
+    profiles = infer_dataset_semantics(df, overrides={
+        'revenue': {
+            'business_name': 'Net Revenue',
+            'default_aggregation': 'average',
+            'certified': True,
+            'description': 'Use average deal value for this dataset.',
+        }
+    })
+    profile_map = {profile['name']: profile for profile in profiles}
+    model = summarize_semantic_model(df, profiles)
+
+    assert profile_map['revenue']['business_name'] == 'Net Revenue'
+    assert profile_map['revenue']['default_aggregation'] == 'average'
+    assert profile_map['revenue']['override_source'] == 'manual'
+    assert model['certified_metrics'] == ['revenue']
+    assert model['manual_override_count'] == 1
