@@ -745,7 +745,10 @@ class NumpyEncoder(json.JSONEncoder):
 def index():
     sample_datasets = [f for f in os.listdir(app.config['SAMPLE_DATASETS']) 
                       if allowed_file(f)]
-    recent_datasets = list_accessible_dataset_records(session['user'])[:6]
+    recent_datasets = [
+        record for record in list_accessible_dataset_records(session['user'])
+        if record.get('stored_path') and os.path.exists(record['stored_path'])
+    ][:6]
     current_dataset = current_dataset_record()
     return render_template(
         'index.html',
@@ -876,7 +879,10 @@ def upload():
     # Get list of sample datasets for the template
     sample_datasets = [f for f in os.listdir(app.config['SAMPLE_DATASETS']) 
                       if allowed_file(f)]
-    recent_datasets = list_accessible_dataset_records(session['user'])[:6]
+    recent_datasets = [
+        record for record in list_accessible_dataset_records(session['user'])
+        if record.get('stored_path') and os.path.exists(record['stored_path'])
+    ][:6]
     return render_template('upload.html', sample_datasets=sample_datasets, recent_datasets=recent_datasets)
 
 @app.route('/sample/<filename>')
