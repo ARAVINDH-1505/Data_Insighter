@@ -29,12 +29,30 @@
                 <i class="fas fa-upload"></i> Analyze a Dataset
             </a>
             <a href="#features" class="btn btn-secondary">
-                <i class="fas fa-sparkles"></i> Explore the Workflow
+                <i class="fas fa-wand-magic-sparkles"></i> Explore the Workflow
             </a>
         </div>
     </div>
     <div class="hero-image">
-        <img src="{{ url_for('static', filename='images/data-analysis.svg') }}" alt="Data Analysis">
+        <div id="hero3d" class="hero3d" aria-hidden="true">
+            <div class="hero3d-fallback">
+                <img src="{{ url_for('static', filename='images/data-analysis.svg') }}" alt="Data Insighter semantic BI workspace illustration">
+            </div>
+            <div class="hero3d-badges">
+                <span class="hero3d-badge hero3d-badge--primary">
+                    <i class="fas fa-cube"></i>
+                    <span>Semantic core</span>
+                </span>
+                <span class="hero3d-badge hero3d-badge--accent">
+                    <i class="fas fa-bolt"></i>
+                    <span>Live insights</span>
+                </span>
+                <span class="hero3d-badge hero3d-badge--soft">
+                    <i class="fas fa-diagram-project"></i>
+                    <span>Connected measures</span>
+                </span>
+            </div>
+        </div>
     </div>
 </section>
 
@@ -224,6 +242,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/hero-3d.js') }}"></script>
 <script>
     document.querySelectorAll('.sample-link').forEach(link => {
         link.addEventListener('click', async (e) => {

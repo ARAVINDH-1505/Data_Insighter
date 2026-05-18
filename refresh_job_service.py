@@ -12,6 +12,7 @@ from dataset_pipeline_service import build_dataset_from_record, supports_pipelin
 from dataset_refresh_service import schema_changes, schema_snapshot
 from dataset_runtime import clear_runtime_cache
 from file_utils import read_data_file
+from time_utils import utcnow
 from workspace_store import (
     create_refresh_job_record,
     get_dataset_record,
@@ -30,7 +31,7 @@ LEASE_SECONDS = 240
 
 
 def _utcnow() -> datetime:
-    return datetime.utcnow()
+    return utcnow()
 
 
 def _isoformat(value: datetime) -> str:

@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 import workspace_store
+from time_utils import utcnow_iso
 
 
 def _default_db_path() -> str:
@@ -123,7 +124,7 @@ def upsert_user(
     db_path: Optional[str] = None,
 ) -> Dict[str, str]:
     ensure_user_store(db_path)
-    now = datetime.utcnow().isoformat() + 'Z'
+    now = utcnow_iso()
     created_value = created_at or now
     updated_value = updated_at or now
     normalized_email = _normalize_email(email)
@@ -166,7 +167,7 @@ def replace_users(users: Dict[str, Dict[str, str]], db_path: Optional[str] = Non
     with _connect(db_path) as connection:
         connection.execute('DELETE FROM users')
         for username, details in normalized_payload.items():
-            now = datetime.utcnow().isoformat() + 'Z'
+            now = utcnow_iso()
             connection.execute(
                 '''
                 INSERT INTO users(username, email, password_hash, created_at, updated_at)
