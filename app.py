@@ -47,6 +47,7 @@ from refresh_job_service import (
     run_refresh_job_by_id,
     start_refresh_scheduler,
 )
+from time_utils import utcnow, utcnow_iso
 from workspace_store import (
     create_dashboard_record,
     create_dataset_record,
@@ -89,6 +90,15 @@ from measure_service import evaluate_measure
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Force browser-compatible JavaScript MIME types so ES modules load
+# correctly on Windows (where the OS registry sometimes maps .js to text/plain
+# and breaks `<script type="module">` strict MIME checks in browsers).
+import mimetypes
+mimetypes.add_type('application/javascript', '.js')
+mimetypes.add_type('application/javascript', '.mjs')
+mimetypes.add_type('text/css', '.css')
+mimetypes.add_type('image/svg+xml', '.svg')
 
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 LOCAL_SECRET_KEY_FILE = os.path.join(APP_ROOT, '.local_secret_key')
@@ -586,7 +596,7 @@ def update_artifact_lifecycle(record, certification, stage, steward, notes=''):
         'steward': steward,
         'notes': notes,
         'updated_by': session.get('user'),
-        'updated_at': datetime.utcnow().isoformat() + 'Z',
+        'updated_at': utcnow_iso(),
     }
     history.append(lifecycle_event)
     metadata = {
@@ -801,7 +811,7 @@ def upload():
                         file.filename,
                         df.columns.tolist(),
                         {
-                            'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
+                            'last_refreshed_at': utcnow_iso(),
                             'schema_snapshot': schema_snapshot(df),
                             'source_extension': extension,
                             'source_table': selected_table,
@@ -911,7 +921,7 @@ def use_sample(filename):
                     filename,
                     df.columns.tolist(),
                     {
-                        'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
+                        'last_refreshed_at': utcnow_iso(),
                         'schema_snapshot': schema_snapshot(df),
                         'source_extension': filename.rsplit('.', 1)[1].lower(),
                         'source_table': selected_table,
@@ -1489,7 +1499,7 @@ def apply_dataset_transform():
             'operation': operation,
             'description': description,
             'options': options,
-            'created_at': datetime.utcnow().isoformat() + 'Z',
+            'created_at': utcnow_iso(),
         }
         derived_path, derived_filename = store_derived_dataset(transformed_df, source_name)
         dataset_record = create_dataset_record(
@@ -1504,7 +1514,7 @@ def apply_dataset_transform():
                 f"{current_metadata.get('display_name', source_name) if current_record else source_name} / transformed",
                 transformed_df.columns.tolist(),
                 {
-                    'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
+                    'last_refreshed_at': utcnow_iso(),
                     'schema_snapshot': schema_snapshot(transformed_df),
                     'transform_operation': operation,
                     'transform_description': description,
@@ -1622,8 +1632,8 @@ def rebuild_dataset(dataset_id):
         rebuild_step = {
             'kind': 'system',
             'operation': 'rebuild_pipeline',
-            'description': f"Rebuilt the dataset from its recorded pipeline definition on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC.",
-            'created_at': datetime.utcnow().isoformat() + 'Z',
+            'description': f"Rebuilt the dataset from its recorded pipeline definition on {utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC.",
+            'created_at': utcnow_iso(),
         }
         rebuilt_record = create_dataset_record(
             session['user'],
@@ -1637,7 +1647,7 @@ def rebuild_dataset(dataset_id):
                 f"{record_metadata.get('display_name', source_name)} / rebuilt",
                 rebuilt_df.columns.tolist(),
                 {
-                    'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
+                    'last_refreshed_at': utcnow_iso(),
                     'schema_snapshot': schema_snapshot(rebuilt_df),
                     'semantic_overrides': scoped_semantic_overrides(
                         record_metadata.get('semantic_overrides', {}),
@@ -2079,7 +2089,7 @@ def create_joined_dataset():
             'right_column': payload.get('right_column'),
             'join_type': payload.get('join_type') or 'left',
             'confidence': payload.get('confidence'),
-            'created_at': datetime.utcnow().isoformat() + 'Z',
+            'created_at': utcnow_iso(),
         }
         derived_path, derived_filename = store_derived_dataset(joined_df, f'{left_name}_joined_{right_name}')
         dataset_record = create_dataset_record(
@@ -2094,7 +2104,7 @@ def create_joined_dataset():
                 f'{left_name} joined with {right_name}',
                 joined_df.columns.tolist(),
                 {
-                    'last_refreshed_at': datetime.utcnow().isoformat() + 'Z',
+                    'last_refreshed_at': utcnow_iso(),
                     'schema_snapshot': schema_snapshot(joined_df),
                     'semantic_overrides': scoped_semantic_overrides(
                         left_metadata.get('semantic_overrides', {}),

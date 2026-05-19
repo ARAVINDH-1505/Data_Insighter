@@ -1,13 +1,96 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">
-    <style>
-        .primary { fill: #2563eb; }
-        .secondary { fill: #64748b; }
-        .accent { fill: #f59e0b; }
-    </style>
-    <rect width="800" height="600" fill="#f8fafc"/>
-    <circle cx="400" cy="300" r="150" class="primary" opacity="0.1"/>
-    <path d="M200,400 L600,200" stroke="#2563eb" stroke-width="4" fill="none"/>
-    <circle cx="300" cy="350" r="50" class="accent" opacity="0.2"/>
-    <rect x="450" y="250" width="100" height="200" class="secondary" opacity="0.1"/>
-    <path d="M250,200 L550,400" stroke="#64748b" stroke-width="4" fill="none"/>
-</svg> 
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-labelledby="diTitle diDesc">
+    <title id="diTitle">Data Insighter semantic BI workspace</title>
+    <desc id="diDesc">A glowing data core surrounded by orbiting charts and connected semantic nodes.</desc>
+    <defs>
+        <radialGradient id="diBackdrop" cx="50%" cy="48%" r="62%">
+            <stop offset="0%" stop-color="#a5f3ec" stop-opacity="0.65"/>
+            <stop offset="55%" stop-color="#bee3df" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="#eef5f4" stop-opacity="0"/>
+        </radialGradient>
+        <linearGradient id="diCore" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#1ba89a"/>
+            <stop offset="100%" stop-color="#0f3f5b"/>
+        </linearGradient>
+        <linearGradient id="diBar" x1="0%" y1="100%" x2="0%" y2="0%">
+            <stop offset="0%" stop-color="#0f766e"/>
+            <stop offset="100%" stop-color="#5fd7c9"/>
+        </linearGradient>
+        <linearGradient id="diAccent" x1="0%" y1="100%" x2="0%" y2="0%">
+            <stop offset="0%" stop-color="#f97316"/>
+            <stop offset="100%" stop-color="#fcd34d"/>
+        </linearGradient>
+        <filter id="diSoft" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="6"/>
+        </filter>
+    </defs>
+
+    <rect width="800" height="600" fill="url(#diBackdrop)"/>
+
+    <!-- soft grid -->
+    <g opacity="0.18" stroke="#0f172a" stroke-width="0.6">
+        <path d="M0 200 H800 M0 300 H800 M0 400 H800"/>
+        <path d="M200 100 V520 M400 100 V520 M600 100 V520"/>
+    </g>
+
+    <!-- orbital rings -->
+    <g transform="translate(400 310)" fill="none" stroke-linecap="round">
+        <ellipse rx="220" ry="92" stroke="#0f766e" stroke-opacity="0.35" stroke-width="1.6"/>
+        <ellipse rx="260" ry="110" stroke="#f97316" stroke-opacity="0.32" stroke-width="1.3" transform="rotate(-18)"/>
+        <ellipse rx="180" ry="74" stroke="#0f766e" stroke-opacity="0.5" stroke-width="2" transform="rotate(22)"/>
+    </g>
+
+    <!-- glow halo -->
+    <circle cx="400" cy="310" r="120" fill="#0f766e" opacity="0.22" filter="url(#diSoft)"/>
+
+    <!-- central core: icosahedron-like polygon -->
+    <g transform="translate(400 310)">
+        <polygon points="0,-92 80,-46 80,46 0,92 -80,46 -80,-46" fill="url(#diCore)" stroke="#5fd7c9" stroke-opacity="0.7" stroke-width="2"/>
+        <polygon points="0,-92 80,-46 0,0 -80,-46" fill="#ffffff" fill-opacity="0.18"/>
+        <polygon points="-80,46 0,0 80,46 0,92" fill="#0f172a" fill-opacity="0.18"/>
+        <circle r="38" fill="#5fd7c9" opacity="0.85" filter="url(#diSoft)"/>
+        <circle r="22" fill="#ffffff" opacity="0.9"/>
+    </g>
+
+    <!-- floating bar chart cluster -->
+    <g transform="translate(110 320)">
+        <rect x="0" y="-40" width="22" height="100" rx="6" fill="url(#diBar)"/>
+        <rect x="32" y="-72" width="22" height="132" rx="6" fill="url(#diAccent)"/>
+        <rect x="64" y="-20" width="22" height="80" rx="6" fill="url(#diBar)"/>
+        <rect x="96" y="-100" width="22" height="160" rx="6" fill="url(#diBar)" opacity="0.86"/>
+    </g>
+
+    <!-- right-side trend chart -->
+    <g transform="translate(560 220)" fill="none">
+        <path d="M0 110 L36 76 L72 92 L108 48 L144 30 L180 8" stroke="#f97316" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M0 110 L36 76 L72 92 L108 48 L144 30 L180 8" stroke="#fcd34d" stroke-width="2" stroke-dasharray="0 8" stroke-linecap="round"/>
+        <g fill="#0f3f5b">
+            <circle cx="36" cy="76" r="5"/>
+            <circle cx="72" cy="92" r="5"/>
+            <circle cx="108" cy="48" r="5"/>
+            <circle cx="144" cy="30" r="5"/>
+            <circle cx="180" cy="8" r="5"/>
+        </g>
+    </g>
+
+    <!-- semantic nodes -->
+    <g fill="#0f766e">
+        <circle cx="220" cy="160" r="6"/>
+        <circle cx="640" cy="430" r="7"/>
+        <circle cx="160" cy="470" r="5"/>
+        <circle cx="690" cy="180" r="5"/>
+    </g>
+    <g fill="#f97316">
+        <circle cx="300" cy="100" r="5"/>
+        <circle cx="540" cy="480" r="6"/>
+        <circle cx="120" cy="240" r="5"/>
+        <circle cx="700" cy="320" r="5"/>
+    </g>
+
+    <!-- connection lines -->
+    <g stroke="#0f172a" stroke-opacity="0.18" stroke-width="1" stroke-dasharray="4 6">
+        <path d="M220 160 L400 310"/>
+        <path d="M640 430 L400 310"/>
+        <path d="M120 240 L400 310"/>
+        <path d="M700 320 L400 310"/>
+    </g>
+</svg>

@@ -7,6 +7,8 @@ import tempfile
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from time_utils import utcnow_iso, utcnow_stamp
+
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), 'workspace_data')
 DATASETS_DIR = os.path.join(BASE_DIR, 'datasets')
@@ -365,8 +367,8 @@ def _write_json_atomic(path: str, payload: Dict[str, Any]) -> None:
 
 def _record_timestamp(table: str, record: Dict[str, Any]) -> str:
     if table == 'audit_events':
-        return record.get('created_at') or datetime.utcnow().isoformat() + 'Z'
-    return record.get('updated_at') or record.get('created_at') or datetime.utcnow().isoformat() + 'Z'
+        return record.get('created_at') or utcnow_iso()
+    return record.get('updated_at') or record.get('created_at') or utcnow_iso()
 
 
 def _record_dataset_id(record: Dict[str, Any]) -> Optional[str]:
@@ -558,8 +560,8 @@ def create_dataset_record(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     ensure_workspace_dirs()
-    dataset_id = f"ds_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
-    now = datetime.utcnow().isoformat() + 'Z'
+    dataset_id = f"ds_{utcnow_stamp()}_{secrets.token_hex(4)}"
+    now = utcnow_iso()
 
     record = {
         'id': dataset_id,
@@ -584,7 +586,7 @@ def update_dataset_record(username: str, dataset_id: str, updates: Dict[str, Any
         return None
 
     record.update(updates)
-    record['updated_at'] = datetime.utcnow().isoformat() + 'Z'
+    record['updated_at'] = utcnow_iso()
 
     return _upsert_record('datasets', username, record)
 
@@ -610,8 +612,8 @@ def create_dashboard_record(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     ensure_workspace_dirs()
-    dashboard_id = f"db_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
-    now = datetime.utcnow().isoformat() + 'Z'
+    dashboard_id = f"db_{utcnow_stamp()}_{secrets.token_hex(4)}"
+    now = utcnow_iso()
     record = {
         'id': dashboard_id,
         'owner': username,
@@ -631,7 +633,7 @@ def update_dashboard_record(username: str, dashboard_id: str, updates: Dict[str,
     if not record:
         return None
     record.update(updates)
-    record['updated_at'] = datetime.utcnow().isoformat() + 'Z'
+    record['updated_at'] = utcnow_iso()
     return _upsert_record('dashboards', username, record)
 
 
@@ -655,8 +657,8 @@ def create_report_record(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     ensure_workspace_dirs()
-    report_id = f"rpt_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
-    now = datetime.utcnow().isoformat() + 'Z'
+    report_id = f"rpt_{utcnow_stamp()}_{secrets.token_hex(4)}"
+    now = utcnow_iso()
     record = {
         'id': report_id,
         'owner': username,
@@ -675,7 +677,7 @@ def update_report_record(username: str, report_id: str, updates: Dict[str, Any])
     if not record:
         return None
     record.update(updates)
-    record['updated_at'] = datetime.utcnow().isoformat() + 'Z'
+    record['updated_at'] = utcnow_iso()
     return _upsert_record('reports', username, record)
 
 
@@ -699,8 +701,8 @@ def create_query_record(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     ensure_workspace_dirs()
-    query_id = f"qry_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
-    now = datetime.utcnow().isoformat() + 'Z'
+    query_id = f"qry_{utcnow_stamp()}_{secrets.token_hex(4)}"
+    now = utcnow_iso()
     record = {
         'id': query_id,
         'owner': username,
@@ -719,7 +721,7 @@ def update_query_record(username: str, query_id: str, updates: Dict[str, Any]) -
     if not record:
         return None
     record.update(updates)
-    record['updated_at'] = datetime.utcnow().isoformat() + 'Z'
+    record['updated_at'] = utcnow_iso()
     return _upsert_record('queries', username, record)
 
 
@@ -745,8 +747,8 @@ def create_relationship_record(
     confidence: Optional[float] = None,
 ) -> Dict[str, Any]:
     ensure_workspace_dirs()
-    relationship_id = f"rel_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
-    now = datetime.utcnow().isoformat() + 'Z'
+    relationship_id = f"rel_{utcnow_stamp()}_{secrets.token_hex(4)}"
+    now = utcnow_iso()
     record = {
         'id': relationship_id,
         'owner': username,
@@ -778,8 +780,8 @@ def create_measure_record(
     latest_result: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     ensure_workspace_dirs()
-    measure_id = f"msr_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
-    now = datetime.utcnow().isoformat() + 'Z'
+    measure_id = f"msr_{utcnow_stamp()}_{secrets.token_hex(4)}"
+    now = utcnow_iso()
     record = {
         'id': measure_id,
         'owner': username,
@@ -810,7 +812,7 @@ def log_audit_event(
     details: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     ensure_workspace_dirs()
-    event_id = f"evt_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
+    event_id = f"evt_{utcnow_stamp()}_{secrets.token_hex(4)}"
     event = {
         'id': event_id,
         'owner': username,
@@ -819,7 +821,7 @@ def log_audit_event(
         'artifact_type': artifact_type,
         'artifact_id': artifact_id,
         'details': details or {},
-        'created_at': datetime.utcnow().isoformat() + 'Z',
+        'created_at': utcnow_iso(),
     }
     return _upsert_record('audit_events', username, event)
 
@@ -861,9 +863,9 @@ def create_refresh_job_record(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     ensure_workspace_dirs()
-    job_id = f"job_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
-    now = datetime.utcnow().isoformat() + 'Z'
-    next_run_at = datetime.utcnow().isoformat() + 'Z'
+    job_id = f"job_{utcnow_stamp()}_{secrets.token_hex(4)}"
+    now = utcnow_iso()
+    next_run_at = utcnow_iso()
     record = {
         'id': job_id,
         'owner': username,
@@ -888,7 +890,7 @@ def update_refresh_job_record(username: str, job_id: str, updates: Dict[str, Any
     if not record:
         return None
     record.update(updates)
-    record['updated_at'] = datetime.utcnow().isoformat() + 'Z'
+    record['updated_at'] = utcnow_iso()
     return _upsert_record('refresh_jobs', username, record)
 
 
