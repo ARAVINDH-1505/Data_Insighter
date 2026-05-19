@@ -108,6 +108,49 @@ def test_viewer_cannot_apply_transform_to_shared_dataset(tmp_path, monkeypatch):
     assert 'viewer access' in payload['error']
 
 
+def test_dashboard_filter_options_returns_dimension_values_and_date_columns(tmp_path, monkeypatch):
+    _configure_workspace_dirs(tmp_path, monkeypatch)
+    users_file = tmp_path / 'users.json'
+    monkeypatch.setattr(app_module, 'USERS_FILE', str(users_file))
+    app_module._save_users({
+        'owner': {'email': 'owner@example.com', 'password_hash': 'x'},
+    })
+    app_module.app.config['TESTING'] = True
+
+    source = tmp_path / 'sales.csv'
+    source.write_text(
+        'region,observed_at,revenue\nNorth,2026-01-01,100\nSouth,2026-01-02,200\nNorth,2026-01-03,150\n',
+        encoding='utf-8',
+    )
+
+    dataset_record = workspace_store.create_dataset_record(
+        'owner',
+        source_name='sales.csv',
+        stored_path=str(source),
+        source_type='upload',
+        row_count=3,
+        column_count=3,
+        metadata={
+            'display_name': 'sales.csv',
+            'columns': ['region', 'observed_at', 'revenue'],
+            'lineage_steps': [],
+            'pipeline_steps': [],
+            'shared_with': [],
+            'row_policies': [],
+        },
+    )
+
+    with app_module.app.test_client() as client:
+        _set_session(client, 'owner', dataset_record['id'], str(source))
+        response = client.get('/dashboard_filter_options')
+        payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload['success'] is True
+    assert payload['options']['region'] == ['North', 'South']
+    assert 'observed_at' in payload['date_columns']
+
+
 def test_owner_can_share_dataset_and_save_row_policy(tmp_path, monkeypatch):
     _configure_workspace_dirs(tmp_path, monkeypatch)
     users_file = tmp_path / 'users.json'

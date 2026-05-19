@@ -1251,11 +1251,13 @@ def export_query_workbench():
         export_name = safe_filename_stem((payload.get('name') or 'query_results').strip(), default='query_results')
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         export_file = f'{export_name}_{timestamp}.csv'
-        export_path = os.path.join(app.config['UPLOAD_FOLDER'], export_file)
-        if not is_path_within_directory(app.config['UPLOAD_FOLDER'], export_path):
-            return error_response('Unsafe export path generated.', 400)
-        export_df.to_csv(export_path, index=False)
-        return send_file(export_path, as_attachment=True, download_name=export_file, mimetype='text/csv')
+        export_bytes = export_df.to_csv(index=False).encode('utf-8')
+        return send_file(
+            BytesIO(export_bytes),
+            as_attachment=True,
+            download_name=export_file,
+            mimetype='text/csv',
+        )
     except Exception as e:
         return error_response(str(e), 400)
 
@@ -1428,7 +1430,7 @@ def export_report():
 
     try:
         frame, dataset_record, _ = load_active_dataset_frame()
-        processor = DataProcessor(dataframe=frame)
+        processor = processor_for_dataset(frame, dataset_record)
         report = build_report_payload(processor.get_analysis_summary(), dataset_record)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1436,20 +1438,20 @@ def export_report():
 
         if export_type == 'markdown':
             output_file = f'{dataset_name}_report_{timestamp}.md'
-            output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
-            if not is_path_within_directory(app.config['UPLOAD_FOLDER'], output_path):
-                return error_response('Unsafe export path generated.', 400)
-            with open(output_path, 'w', encoding='utf-8') as handle:
-                handle.write(report['markdown'])
-            return send_file(output_path, as_attachment=True, download_name=output_file, mimetype='text/markdown')
+            return send_file(
+                BytesIO(report['markdown'].encode('utf-8')),
+                as_attachment=True,
+                download_name=output_file,
+                mimetype='text/markdown',
+            )
 
         output_file = f'{dataset_name}_report_{timestamp}.html'
-        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
-        if not is_path_within_directory(app.config['UPLOAD_FOLDER'], output_path):
-            return error_response('Unsafe export path generated.', 400)
-        with open(output_path, 'w', encoding='utf-8') as handle:
-            handle.write(report['html'])
-        return send_file(output_path, as_attachment=True, download_name=output_file, mimetype='text/html')
+        return send_file(
+            BytesIO(report['html'].encode('utf-8')),
+            as_attachment=True,
+            download_name=output_file,
+            mimetype='text/html',
+        )
     except Exception as e:
         return error_response(str(e), 400)
 
@@ -2322,17 +2324,10 @@ def export_dashboard():
         dashboard_json = escape_embedded_json(dashboard_data)
         html_content = template_content.replace('DASHBOARD_DATA_PLACEHOLDER', dashboard_json)
         
-        # Create a temporary file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = f'dashboard_export_{timestamp}.html'
-        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
-        
-        # Save the file
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        
         return send_file(
-            output_path,
+            BytesIO(html_content.encode('utf-8')),
             as_attachment=True,
             download_name=output_file,
             mimetype='text/html'
@@ -2520,7 +2515,7 @@ def starter_dashboard():
 @login_required
 def dashboard_filter_options():
     try:
-        frame, _, _ = load_active_dataset_frame()
+        frame, dataset_record, _ = load_active_dataset_frame()
         processor = processor_for_dataset(frame, dataset_record)
         summary = processor.get_analysis_summary()
         semantic_profiles = summary.get('semantic_profiles', [])

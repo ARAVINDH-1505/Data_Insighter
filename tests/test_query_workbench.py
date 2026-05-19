@@ -194,6 +194,7 @@ def test_query_workbench_export_returns_csv(tmp_path, monkeypatch):
         body = response.data.decode('utf-8')
         assert 'region,revenue' in body
         assert 'South,200' in body
+        assert not any(path.is_file() for path in (tmp_path / 'uploads').iterdir())
     finally:
         app_module.app.config['UPLOAD_FOLDER'] = original_upload_folder
         app_module.app.config['MANAGED_DATASETS_FOLDER'] = original_managed_folder
